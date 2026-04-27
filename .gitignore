@@ -1,0 +1,27 @@
+# Build output
+bin/
+obj/
+out/
+
+# NuGet
+packages/
+*.nupkg
+
+# User and IDE files
+.vs/
+.idea/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+riderModule.iml
+_ReSharper.Caches/
+
+# Logs and temporary files
+*.log
+*.tmp
+*.cache
+
+# OS files
+Thumbs.db
+Desktop.ini
