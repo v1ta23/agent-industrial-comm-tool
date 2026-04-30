@@ -2,6 +2,8 @@ namespace industrial_comm_tool;
 
 public partial class Form1 : Form
 {
+    private const string AgentWorkbenchUrl = "http://localhost:5173";
+
     private readonly Dictionary<string, Button> _navButtons = new();
     private readonly List<CommunicationLogEntry> _logEntries = new();
     private CommunicationConnectionConfig _connectionConfig = CommunicationConfigStore.Load();
@@ -678,11 +680,12 @@ public partial class Form1 : Form
         var toolbar = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
-            ColumnCount = 2,
+            ColumnCount = 3,
             RowCount = 1,
         };
         toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, S(86)));
+        toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, S(124)));
         toolbar.Controls.Add(new Label
         {
             Dock = DockStyle.Fill,
@@ -694,6 +697,10 @@ public partial class Form1 : Form
         refreshButton.Dock = DockStyle.Fill;
         refreshButton.Click += (_, _) => ShowAgentDashboardPage();
         toolbar.Controls.Add(refreshButton, 1, 0);
+        var workbenchButton = CreatePrimaryButton("Agent工作台");
+        workbenchButton.Dock = DockStyle.Fill;
+        workbenchButton.Click += (_, _) => OpenExternalUrl(AgentWorkbenchUrl);
+        toolbar.Controls.Add(workbenchButton, 2, 0);
         layout.Controls.Add(toolbar, 0, 0);
 
         var metricGrid = new TableLayoutPanel
@@ -842,6 +849,14 @@ public partial class Form1 : Form
 
         var errorText = topError is null ? "未知异常" : topError.Key;
         return $"当前有 {failedEntries.Count} 条失败记录。\r\n\r\n最新失败：{latestFailed.Content}\r\n\r\n主要问题：{errorText}\r\n\r\n先检查连接状态、IP、端口和设备是否在线。";
+    }
+
+    private static void OpenExternalUrl(string url)
+    {
+        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(url)
+        {
+            UseShellExecute = true,
+        });
     }
 
     private Control BuildPageTitle(string titleText, string subtitleText)

@@ -1,7 +1,7 @@
 import cors from "cors";
 import express from "express";
 import type { ErrorRequestHandler } from "express";
-import { getDefaultLogPath, loadCommunicationLogs, summarizeLogs } from "./logs.js";
+import { analyzeLogs, getDefaultLogPath, loadCommunicationLogs, summarizeLogs } from "./logs.js";
 
 const app = express();
 const port = Number(process.env.PORT ?? 4317);
@@ -24,6 +24,20 @@ app.get("/api/logs", async (_request, response, next) => {
       total: items.length,
       summary: summarizeLogs(items),
       items,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/api/analysis", async (_request, response, next) => {
+  try {
+    const items = await loadCommunicationLogs();
+
+    response.json({
+      source: getDefaultLogPath(),
+      total: items.length,
+      analysis: analyzeLogs(items),
     });
   } catch (error) {
     next(error);

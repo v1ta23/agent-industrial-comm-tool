@@ -33,6 +33,21 @@ type LogsResponse = {
   items: CommunicationLogEntry[];
 };
 
+type CommunicationLogAnalysis = {
+  level: "normal" | "warning" | "critical";
+  summary: string;
+  focus: string;
+  suggestions: string[];
+  evidence: string[];
+  generatedAt: string;
+};
+
+type AnalysisResponse = {
+  source: string;
+  total: number;
+  analysis: CommunicationLogAnalysis;
+};
+
 type ChartItem = {
   name: string;
   value: number;
@@ -47,9 +62,19 @@ const emptySummary: CommunicationLogSummary = {
   errorTypeCounts: {},
 };
 
+const emptyAnalysis: CommunicationLogAnalysis = {
+  level: "normal",
+  summary: "正在等待 Agent 分析",
+  focus: "读取日志后生成判断",
+  suggestions: [],
+  evidence: [],
+  generatedAt: "",
+};
+
 export default function App() {
   const [logs, setLogs] = useState<CommunicationLogEntry[]>([]);
   const [summary, setSummary] = useState<CommunicationLogSummary>(emptySummary);
+  const [analysis, setAnalysis] = useState<CommunicationLogAnalysis>(emptyAnalysis);
   const [source, setSource] = useState("");
   const [status, setStatus] = useState("正在读取日志");
   const [lastRefresh, setLastRefresh] = useState("");
@@ -58,14 +83,24 @@ export default function App() {
     setStatus("正在读取日志");
 
     try {
-      const response = await fetch(`${getApiBaseUrl()}/api/logs`);
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
+      const [logsResponse, analysisResponse] = await Promise.all([
+        fetch(`${getApiBaseUrl()}/api/logs`),
+        fetch(`${getApiBaseUrl()}/api/analysis`),
+      ]);
+
+      if (!logsResponse.ok) {
+        throw new Error(`日志接口 HTTP ${logsResponse.status}`);
       }
 
-      const data = await response.json() as LogsResponse;
+      if (!analysisResponse.ok) {
+        throw new Error(`分析接口 HTTP ${analysisResponse.status}`);
+      }
+
+      const data = await logsResponse.json() as LogsResponse;
+      const analysisData = await analysisResponse.json() as AnalysisResponse;
       setLogs(data.items);
       setSummary(data.summary);
+      setAnalysis(analysisData.analysis);
       setSource(data.source);
       setStatus(`已读取 ${data.total} 条日志`);
       setLastRefresh(new Date().toLocaleString());
@@ -99,7 +134,9 @@ export default function App() {
     () => toChartData(summary.protocolCounts, "暂无协议"),
     [summary.protocolCounts],
   );
-  const advice = useMemo(() => buildAdvice(summary, logs), [summary, logs]);
+  const advice = analysis.suggestions.length > 0
+    ? analysis.suggestions
+    : ["Agent 正在等待可分析的通信日志。"];
 
   return (
     <main className="app-shell">
@@ -123,14 +160,38 @@ export default function App() {
       <section className="workspace">
         <header className="topbar">
           <div>
-            <p className="eyebrow">WinForms 日志读取</p>
-            <h2>先看数据，不控制设备</h2>
-            <p>看板从 JSON 日志读数据，适合先判断通信是否稳定。</p>
+            <p className="eyebrow">Agent Workbench</p>
+            <h2>通信 Agent 工作台</h2>
+            <p>从 WinForms 日志读取数据，展示图表，并给出排查建议。</p>
           </div>
           <button type="button" onClick={() => void refreshLogs()}>
-            刷新数据
+            重新分析
           </button>
         </header>
+
+        <section className={`agent-board ${analysis.level}`} aria-label="Agent 分析">
+          <div className="agent-primary">
+            <p className="eyebrow">Agent 判断</p>
+            <h3>{analysis.summary}</h3>
+            <strong>{analysis.focus}</strong>
+          </div>
+          <div className="agent-list">
+            <span>建议</span>
+            <ul>
+              {analysis.suggestions.map((item) => (
+                <li key={item}>{item}</li>
+              ))}
+            </ul>
+          </div>
+          <div className="agent-list">
+            <span>依据</span>
+            <ul>
+              {analysis.evidence.map((item) => (
+                <li key={item}>{item}</li>
+              ))}
+            </ul>
+          </div>
+        </section>
 
         <section id="overview" className="metrics" aria-label="日志概览">
           <Metric label="总日志" value={summary.total.toString()} />
@@ -351,34 +412,6 @@ function buildProtocolOption(items: ChartItem[]): EChartsCoreOption {
 function toChartData(counts: Record<string, number>, emptyLabel: string) {
   const rows = Object.entries(counts).map(([name, value]) => ({ name, value }));
   return rows.length > 0 ? rows : [{ name: emptyLabel, value: 1 }];
-}
-
-function buildAdvice(summary: CommunicationLogSummary, logs: CommunicationLogEntry[]) {
-  if (summary.total === 0) {
-    return ["还没有通信日志，先在 WinForms 里跑一次模拟发送。"];
-  }
-
-  const advice: string[] = [];
-  const topError = Object.entries(summary.errorTypeCounts).sort((a, b) => b[1] - a[1])[0];
-  const latestFailed = [...logs].reverse().find((item) => item.status !== "Success");
-
-  if (summary.failed > 0) {
-    advice.push(`当前有 ${summary.failed} 条失败记录，先看最新失败：${latestFailed?.content ?? "无内容"}`);
-  }
-
-  if (topError) {
-    advice.push(`出现最多的问题是 ${topError[0]}，优先检查连接状态、IP、端口和设备是否在线。`);
-  }
-
-  if (summary.averageDurationMs > 50) {
-    advice.push("平均响应耗时偏高，可以先确认设备负载和网络延迟。");
-  }
-
-  if (advice.length === 0) {
-    advice.push("当前日志看起来稳定，可以继续增加串口或 Modbus TCP 数据源。");
-  }
-
-  return advice;
 }
 
 function translateDirection(direction: string) {

@@ -22,6 +22,15 @@ export type CommunicationLogSummary = {
   errorTypeCounts: Record<string, number>;
 };
 
+export type CommunicationLogAnalysis = {
+  level: "normal" | "warning" | "critical";
+  summary: string;
+  focus: string;
+  suggestions: string[];
+  evidence: string[];
+  generatedAt: string;
+};
+
 const currentDirectory = path.dirname(fileURLToPath(import.meta.url));
 
 export function getDefaultLogPath() {
@@ -82,6 +91,70 @@ export function summarizeLogs(entries: CommunicationLogEntry[]): CommunicationLo
 
   summary.averageDurationMs = durationCount === 0 ? 0 : Math.round(durationTotal / durationCount);
   return summary;
+}
+
+export function analyzeLogs(entries: CommunicationLogEntry[]): CommunicationLogAnalysis {
+  if (entries.length === 0) {
+    return {
+      level: "normal",
+      summary: "还没有通信日志",
+      focus: "先生成通信数据",
+      suggestions: ["回到 WinForms 的 TCP 调试页，连接模拟设备并发送一次指令。"],
+      evidence: ["日志文件为空，Agent 暂时没有可分析的数据。"],
+      generatedAt: new Date().toISOString(),
+    };
+  }
+
+  const summary = summarizeLogs(entries);
+  const failedEntries = entries.filter((entry) => entry.status !== "Success");
+  const timeoutEntries = failedEntries.filter((entry) => entry.errorType === "Timeout");
+  const disconnectedEntries = failedEntries.filter((entry) => entry.errorType === "Disconnected");
+  const slowEntries = entries.filter((entry) => entry.durationMs > Math.max(80, summary.averageDurationMs * 2));
+  const latestFailed = failedEntries.at(-1);
+  const topError = Object.entries(summary.errorTypeCounts).sort((left, right) => right[1] - left[1])[0];
+  const suggestions: string[] = [];
+  const evidence: string[] = [
+    `总日志 ${summary.total} 条，成功 ${summary.success} 条，失败 ${summary.failed} 条。`,
+    `平均响应耗时 ${summary.averageDurationMs} ms。`,
+  ];
+
+  let level: CommunicationLogAnalysis["level"] = "normal";
+  let focus = "通信状态正常";
+  let summaryText = "当前日志看起来稳定";
+
+  if (failedEntries.length > 0) {
+    level = failedEntries.length >= 3 ? "critical" : "warning";
+    focus = topError ? `优先排查 ${topError[0]}` : "优先排查失败通信";
+    summaryText = `发现 ${failedEntries.length} 条失败通信`;
+    evidence.push(`最新失败：${latestFailed?.content || "无内容"}`);
+  }
+
+  if (disconnectedEntries.length > 0) {
+    suggestions.push("先检查连接状态、IP、端口和设备是否在线。");
+  }
+
+  if (timeoutEntries.length > 0) {
+    suggestions.push("有超时记录，优先确认设备负载、网络延迟和超时时间设置。");
+  }
+
+  if (slowEntries.length > 0) {
+    level = level === "normal" ? "warning" : level;
+    suggestions.push("有响应明显变慢的记录，可以对照时间点检查设备或网络状态。");
+    evidence.push(`慢响应 ${slowEntries.length} 条，最高 ${Math.max(...slowEntries.map((entry) => entry.durationMs))} ms。`);
+  }
+
+  if (suggestions.length === 0) {
+    suggestions.push("继续保留日志采集，下一步可以接入串口或 Modbus TCP 数据。");
+  }
+
+  return {
+    level,
+    summary: summaryText,
+    focus,
+    suggestions,
+    evidence,
+    generatedAt: new Date().toISOString(),
+  };
 }
 
 function normalizeLogEntry(entry: Partial<CommunicationLogEntry>, index: number): CommunicationLogEntry {

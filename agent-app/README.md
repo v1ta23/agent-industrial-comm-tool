@@ -1,6 +1,6 @@
 # TypeScript Agent App
 
-这是通信工具的数据看板第一版成品。它只读取日志、展示数据和给排查建议，不会控制设备，也不会向 WinForms 发送指令。
+这是通信工具的 Agent 工作台。它只读取日志、展示数据和给排查建议，不会控制设备，也不会向 WinForms 发送指令。
 
 ## 数据怎么流过来
 
@@ -16,7 +16,7 @@ Agent 后端读取这个 JSON 文件，再通过接口给前端：
 WinForms -> data/comm-logs.json -> backend /api/logs -> frontend ECharts
 ```
 
-说白了：WinForms 负责产生日志，Agent 后端负责把日志端出来，前端负责把日志画成图。
+说白了：WinForms 负责产生日志，Agent 后端负责读取和分析，前端负责把图表和建议展示出来。
 
 ## 当前页面
 
@@ -26,7 +26,7 @@ WinForms -> data/comm-logs.json -> backend /api/logs -> frontend ECharts
 - 异常类型图：读取 `errorType`
 - 协议分布图：读取 `protocol`
 - 最近通信日志：显示最新 8 条记录
-- Agent 建议：根据失败次数、异常类型和平均耗时给简单排查方向
+- Agent 判断：后端 `/api/analysis` 根据失败次数、异常类型和平均耗时给排查方向
 
 ## 运行方式
 
@@ -54,7 +54,7 @@ npm run dev:frontend
 - 后端：`http://localhost:4317`
 - 前端：`http://localhost:5173`
 
-## WinForms 软件里的看板
+## 折中使用方式
 
 启动 WinForms 后，在左侧菜单点：
 
@@ -62,9 +62,15 @@ npm run dev:frontend
 数据看板
 ```
 
-现在软件里已经有原生数据看板，不需要先打开网页。它直接读取同一个 `data/comm-logs.json`。
+WinForms 里保留轻量看板，直接读取同一个 `data/comm-logs.json`。
 
-这里的 React + ECharts 网页看板可以保留作对照版或后续 Agent 页面，但不是必须入口。
+如果要看更完整的 Agent 工作台，点 WinForms 页面右上角的：
+
+```text
+Agent工作台
+```
+
+它会打开 `http://localhost:5173`。这部分用网页前端做，适合放 ECharts、分析卡片和后续 Agent 对话。
 
 ## 目录结构
 
@@ -92,3 +98,4 @@ agent-app
 
 - `GET /api/health`：检查后端是否启动
 - `GET /api/logs`：读取 `data/comm-logs.json`，返回日志数组和统计数据
+- `GET /api/analysis`：读取日志并返回 Agent 分析建议
