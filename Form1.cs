@@ -232,7 +232,7 @@ public partial class Form1 : Form
             RowCount = 3,
         };
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, S(58)));
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, S(260)));
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, S(312)));
         layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
 
         var section = new TableLayoutPanel
@@ -266,6 +266,7 @@ public partial class Form1 : Form
             ("serial", "◇  串口调试"),
             ("modbus", "▣  Modbus"),
             ("logs", "▤  通信日志"),
+            ("dashboard", "▥  数据看板"),
             ("settings", "⌁  模拟配置"),
         };
 
@@ -326,6 +327,12 @@ public partial class Form1 : Form
             if (key == "logs")
             {
                 ShowLogConfigPage();
+                return;
+            }
+
+            if (key == "dashboard")
+            {
+                ShowAgentDashboardPage();
                 return;
             }
 
@@ -627,6 +634,214 @@ public partial class Form1 : Form
             UpdateLogPageSummary(entries, totalValue, successValue, failedValue, avgDurationValue);
             SetStatus(logStatusLabel, $"{message}：{entries.Count} 条", TextMuted);
         }
+    }
+
+    private void ShowAgentDashboardPage()
+    {
+        SetActiveNav("dashboard");
+        _contentPanel.SuspendLayout();
+        _contentPanel.Controls.Clear();
+
+        var entries = CommunicationLogStore.Load();
+        var successCount = entries.Count(entry => entry.Status == "Success");
+        var failedCount = entries.Count - successCount;
+        var successRate = entries.Count == 0 ? "0%" : $"{Math.Round(successCount * 100d / entries.Count)}%";
+        var durationEntries = entries.Where(entry => entry.DurationMs > 0).ToList();
+        var avgDuration = durationEntries.Count == 0
+            ? "-- ms"
+            : $"{Math.Round(durationEntries.Average(entry => entry.DurationMs))} ms";
+
+        var root = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            BackColor = AppBackground,
+            ColumnCount = 1,
+            RowCount = 2,
+        };
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, S(72)));
+        root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+
+        var panel = CreateSurfacePanel();
+        panel.Padding = new Padding(S(16));
+
+        var layout = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 1,
+            RowCount = 4,
+        };
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, S(38)));
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, S(92)));
+        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 52));
+        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 48));
+
+        var toolbar = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 2,
+            RowCount = 1,
+        };
+        toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, S(86)));
+        toolbar.Controls.Add(new Label
+        {
+            Dock = DockStyle.Fill,
+            Text = $"已读取 {entries.Count} 条 JSON 日志。数据来自：{CommunicationLogStore.DefaultFilePath}",
+            ForeColor = TextMuted,
+            TextAlign = ContentAlignment.MiddleLeft,
+        }, 0, 0);
+        var refreshButton = CreateSecondaryButton("刷新");
+        refreshButton.Dock = DockStyle.Fill;
+        refreshButton.Click += (_, _) => ShowAgentDashboardPage();
+        toolbar.Controls.Add(refreshButton, 1, 0);
+        layout.Controls.Add(toolbar, 0, 0);
+
+        var metricGrid = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 4,
+            RowCount = 1,
+            Padding = new Padding(0, S(8), 0, S(8)),
+        };
+        for (var i = 0; i < 4; i++)
+        {
+            metricGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 25));
+        }
+        metricGrid.Controls.Add(CreateOverviewMetricCard("总日志", CreateMetricValue(entries.Count.ToString(), TextMuted)), 0, 0);
+        metricGrid.Controls.Add(CreateOverviewMetricCard("成功率", CreateMetricValue(successRate, Success)), 1, 0);
+        metricGrid.Controls.Add(CreateOverviewMetricCard("失败次数", CreateMetricValue(failedCount.ToString(), failedCount > 0 ? Danger : TextMuted)), 2, 0);
+        metricGrid.Controls.Add(CreateOverviewMetricCard("平均耗时", CreateMetricValue(avgDuration, Primary)), 3, 0);
+        layout.Controls.Add(metricGrid, 0, 1);
+
+        var chartGrid = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 2,
+            RowCount = 1,
+            Padding = new Padding(0, 0, 0, S(8)),
+        };
+        chartGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 58));
+        chartGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 42));
+        chartGrid.Controls.Add(CreateNativeChartCard("响应耗时", new DurationTrendChart(durationEntries)), 0, 0);
+        chartGrid.Controls.Add(CreateNativeChartCard("成功 / 失败", new StatusCountChart(successCount, failedCount)), 1, 0);
+        layout.Controls.Add(chartGrid, 0, 2);
+
+        var detailGrid = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 2,
+            RowCount = 1,
+        };
+        detailGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 68));
+        detailGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 32));
+
+        var recentGrid = CreateStoredLogGrid();
+        recentGrid.Margin = new Padding(0);
+        PopulateStoredLogGrid(recentGrid, entries.Reverse().Take(8).ToList());
+        detailGrid.Controls.Add(CreateNativeLogCard(recentGrid), 0, 0);
+        detailGrid.Controls.Add(CreateNativeAdviceCard(entries), 1, 0);
+        layout.Controls.Add(detailGrid, 0, 3);
+
+        panel.Controls.Add(layout);
+        root.Controls.Add(BuildPageTitle("数据看板", "软件内置看板，直接读取 JSON 日志，不需要先打开网页。"), 0, 0);
+        root.Controls.Add(panel, 0, 1);
+
+        _contentPanel.Controls.Add(root);
+        _contentPanel.ResumeLayout(true);
+    }
+
+    private Control CreateNativeChartCard(string titleText, Control chart)
+    {
+        var panel = CreateSurfacePanel();
+        panel.Margin = new Padding(0, 0, S(10), 0);
+        panel.Padding = new Padding(S(14), S(12), S(14), S(12));
+
+        var layout = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 1,
+            RowCount = 2,
+        };
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, S(28)));
+        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        chart.Dock = DockStyle.Fill;
+        layout.Controls.Add(CreateSectionTitle(titleText), 0, 0);
+        layout.Controls.Add(chart, 0, 1);
+        panel.Controls.Add(layout);
+        return panel;
+    }
+
+    private Control CreateNativeLogCard(DataGridView grid)
+    {
+        var panel = CreateSurfacePanel();
+        panel.Margin = new Padding(0, 0, S(10), 0);
+        panel.Padding = new Padding(S(14), S(12), S(14), S(12));
+
+        var layout = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 1,
+            RowCount = 2,
+        };
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, S(28)));
+        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        layout.Controls.Add(CreateSectionTitle("最近通信日志"), 0, 0);
+        layout.Controls.Add(grid, 0, 1);
+        panel.Controls.Add(layout);
+        return panel;
+    }
+
+    private Control CreateNativeAdviceCard(IReadOnlyList<CommunicationLogEntry> entries)
+    {
+        var panel = CreateSurfacePanel();
+        panel.Padding = new Padding(S(14), S(12), S(14), S(12));
+
+        var layout = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 1,
+            RowCount = 2,
+        };
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, S(28)));
+        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        layout.Controls.Add(CreateSectionTitle("排查建议"), 0, 0);
+
+        var advice = new Label
+        {
+            Dock = DockStyle.Fill,
+            Text = BuildNativeDashboardAdvice(entries),
+            ForeColor = TextMain,
+            Font = new Font(Font.FontFamily, 9.5F, FontStyle.Regular),
+            TextAlign = ContentAlignment.TopLeft,
+            Padding = new Padding(0, S(8), 0, 0),
+        };
+        layout.Controls.Add(advice, 0, 1);
+        panel.Controls.Add(layout);
+        return panel;
+    }
+
+    private static string BuildNativeDashboardAdvice(IReadOnlyList<CommunicationLogEntry> entries)
+    {
+        if (entries.Count == 0)
+        {
+            return "还没有通信日志。\r\n\r\n先回到 TCP 调试页，连接模拟设备并发送一次指令。";
+        }
+
+        var failedEntries = entries.Where(entry => entry.Status != "Success").ToList();
+        if (failedEntries.Count == 0)
+        {
+            return "当前没有失败记录。\r\n\r\n可以继续观察响应耗时，或者下一步接串口 / Modbus 数据。";
+        }
+
+        var latestFailed = failedEntries.Last();
+        var topError = failedEntries
+            .Where(entry => !string.IsNullOrWhiteSpace(entry.ErrorType))
+            .GroupBy(entry => entry.ErrorType)
+            .OrderByDescending(group => group.Count())
+            .FirstOrDefault();
+
+        var errorText = topError is null ? "未知异常" : topError.Key;
+        return $"当前有 {failedEntries.Count} 条失败记录。\r\n\r\n最新失败：{latestFailed.Content}\r\n\r\n主要问题：{errorText}\r\n\r\n先检查连接状态、IP、端口和设备是否在线。";
     }
 
     private Control BuildPageTitle(string titleText, string subtitleText)
@@ -1712,6 +1927,159 @@ public partial class Form1 : Form
     }
 
     private sealed record SimulatedResponse(string Content, string Status, string DurationMs, string ErrorType);
+
+    private sealed class DurationTrendChart : Panel
+    {
+        private readonly IReadOnlyList<CommunicationLogEntry> _entries;
+
+        public DurationTrendChart(IReadOnlyList<CommunicationLogEntry> entries)
+        {
+            _entries = entries;
+            BackColor = Surface;
+            DoubleBuffered = true;
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            base.OnPaint(e);
+            e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+
+            var plot = new Rectangle(42, 18, Math.Max(10, Width - 62), Math.Max(10, Height - 52));
+            DrawAxes(e.Graphics, plot);
+
+            if (_entries.Count == 0)
+            {
+                DrawEmptyText(e.Graphics, ClientRectangle, "暂无耗时数据");
+                return;
+            }
+
+            var maxValue = Math.Max(10, _entries.Max(entry => entry.DurationMs));
+            var points = new PointF[_entries.Count];
+            for (var i = 0; i < _entries.Count; i++)
+            {
+                var x = _entries.Count == 1
+                    ? plot.Left + plot.Width / 2f
+                    : plot.Left + i * plot.Width / (float)(_entries.Count - 1);
+                var y = plot.Bottom - _entries[i].DurationMs / (float)maxValue * plot.Height;
+                points[i] = new PointF(x, y);
+            }
+
+            using var areaBrush = new SolidBrush(Color.FromArgb(28, Primary));
+            var areaPoints = points
+                .Concat(new[] { new PointF(points[^1].X, plot.Bottom), new PointF(points[0].X, plot.Bottom) })
+                .ToArray();
+            e.Graphics.FillPolygon(areaBrush, areaPoints);
+
+            using var linePen = new Pen(Primary, 2.4F);
+            if (points.Length > 1)
+            {
+                e.Graphics.DrawLines(linePen, points);
+            }
+
+            using var pointBrush = new SolidBrush(Surface);
+            using var pointPen = new Pen(Primary, 2F);
+            foreach (var point in points)
+            {
+                e.Graphics.FillEllipse(pointBrush, point.X - 4, point.Y - 4, 8, 8);
+                e.Graphics.DrawEllipse(pointPen, point.X - 4, point.Y - 4, 8, 8);
+            }
+
+            DrawAxisText(e.Graphics, plot, $"最高 {maxValue} ms", _entries[0].Time, _entries[^1].Time);
+        }
+    }
+
+    private sealed class StatusCountChart : Panel
+    {
+        private readonly int _successCount;
+        private readonly int _failedCount;
+
+        public StatusCountChart(int successCount, int failedCount)
+        {
+            _successCount = successCount;
+            _failedCount = failedCount;
+            BackColor = Surface;
+            DoubleBuffered = true;
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            base.OnPaint(e);
+            e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+
+            var plot = new Rectangle(42, 18, Math.Max(10, Width - 62), Math.Max(10, Height - 52));
+            DrawAxes(e.Graphics, plot);
+
+            var maxValue = Math.Max(1, Math.Max(_successCount, _failedCount));
+            DrawBar(e.Graphics, plot, 0, "成功", _successCount, maxValue, Success);
+            DrawBar(e.Graphics, plot, 1, "失败", _failedCount, maxValue, Danger);
+            DrawAxisText(e.Graphics, plot, $"最高 {maxValue} 条", "", "");
+        }
+
+        private static void DrawBar(Graphics graphics, Rectangle plot, int index, string label, int value, int maxValue, Color color)
+        {
+            var centerX = plot.Left + plot.Width * (index == 0 ? 0.32F : 0.68F);
+            var barWidth = Math.Min(54, plot.Width * 0.18F);
+            var height = value / (float)maxValue * plot.Height;
+            var rectangle = new RectangleF(centerX - barWidth / 2F, plot.Bottom - height, barWidth, height);
+
+            using var brush = new SolidBrush(color);
+            graphics.FillRectangle(brush, rectangle);
+
+            using var textBrush = new SolidBrush(TextMuted);
+            using var valueBrush = new SolidBrush(TextMain);
+            using var font = new Font("Microsoft YaHei UI", 8.5F, FontStyle.Regular);
+            using var valueFont = new Font("Microsoft YaHei UI", 9F, FontStyle.Bold);
+            graphics.DrawString(value.ToString(), valueFont, valueBrush, rectangle.Left + 4, rectangle.Top - 22);
+            graphics.DrawString(label, font, textBrush, centerX - 16, plot.Bottom + 8);
+        }
+    }
+
+    private static void DrawAxes(Graphics graphics, Rectangle plot)
+    {
+        using var axisPen = new Pen(SubtleBorder);
+        using var darkPen = new Pen(Color.FromArgb(158, 166, 180));
+
+        for (var i = 0; i <= 3; i++)
+        {
+            var y = plot.Top + i * plot.Height / 3F;
+            graphics.DrawLine(axisPen, plot.Left, y, plot.Right, y);
+        }
+
+        graphics.DrawLine(darkPen, plot.Left, plot.Bottom, plot.Right, plot.Bottom);
+        graphics.DrawLine(darkPen, plot.Left, plot.Top, plot.Left, plot.Bottom);
+    }
+
+    private static void DrawAxisText(Graphics graphics, Rectangle plot, string topText, string firstTime, string lastTime)
+    {
+        using var brush = new SolidBrush(TextMuted);
+        using var font = new Font("Microsoft YaHei UI", 8F, FontStyle.Regular);
+        graphics.DrawString(topText, font, brush, plot.Left, 0);
+
+        if (!string.IsNullOrWhiteSpace(firstTime))
+        {
+            graphics.DrawString(ShortTime(firstTime), font, brush, plot.Left, plot.Bottom + 8);
+        }
+
+        if (!string.IsNullOrWhiteSpace(lastTime))
+        {
+            var text = ShortTime(lastTime);
+            var size = graphics.MeasureString(text, font);
+            graphics.DrawString(text, font, brush, plot.Right - size.Width, plot.Bottom + 8);
+        }
+    }
+
+    private static void DrawEmptyText(Graphics graphics, Rectangle bounds, string text)
+    {
+        using var brush = new SolidBrush(TextMuted);
+        using var font = new Font("Microsoft YaHei UI", 9F, FontStyle.Regular);
+        var size = graphics.MeasureString(text, font);
+        graphics.DrawString(text, font, brush, (bounds.Width - size.Width) / 2F, (bounds.Height - size.Height) / 2F);
+    }
+
+    private static string ShortTime(string value)
+    {
+        return value.Length <= 8 ? value : value[^8..];
+    }
 
     private sealed class BorderedPanel : Panel
     {

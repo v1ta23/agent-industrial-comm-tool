@@ -25,6 +25,13 @@ data/comm-logs.json
 data/connection-config.json
 data/exports/
 
+# TypeScript agent app
+agent-app/node_modules/
+agent-app/**/node_modules/
+agent-app/**/dist/
+agent-app/**/.vite/
+agent-app/**/*.tsbuildinfo
+
 # OS files
 Thumbs.db
 Desktop.ini

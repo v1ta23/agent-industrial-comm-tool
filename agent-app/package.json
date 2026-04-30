@@ -1,0 +1,15 @@
+{
+  "name": "industrial-comm-agent-app",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "backend",
+    "frontend"
+  ],
+  "scripts": {
+    "dev:backend": "npm run dev --workspace backend",
+    "dev:frontend": "npm run dev --workspace frontend",
+    "build": "npm run build --workspace backend && npm run build --workspace frontend",
+    "check": "npm run check --workspace backend && npm run check --workspace frontend"
+  }
+}
