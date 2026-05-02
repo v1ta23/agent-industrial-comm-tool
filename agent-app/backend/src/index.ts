@@ -30,6 +30,22 @@ app.get("/api/logs", async (_request, response, next) => {
   }
 });
 
+app.get("/api/workbench", async (_request, response, next) => {
+  try {
+    const items = await loadCommunicationLogs();
+
+    response.json({
+      source: getDefaultLogPath(),
+      total: items.length,
+      summary: summarizeLogs(items),
+      analysis: analyzeLogs(items),
+      items,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.get("/api/analysis", async (_request, response, next) => {
   try {
     const items = await loadCommunicationLogs();

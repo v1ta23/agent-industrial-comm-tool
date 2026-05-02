@@ -2,10 +2,9 @@ namespace industrial_comm_tool;
 
 public partial class Form1 : Form
 {
-    private const string AgentWorkbenchUrl = "http://localhost:5173";
-
     private readonly Dictionary<string, Button> _navButtons = new();
     private readonly List<CommunicationLogEntry> _logEntries = new();
+    private AgentWorkbenchForm? _agentWorkbenchForm;
     private CommunicationConnectionConfig _connectionConfig = CommunicationConfigStore.Load();
     private Panel _contentPanel = null!;
     private Label _connectionBadge = null!;
@@ -326,6 +325,18 @@ public partial class Form1 : Form
                 return;
             }
 
+            if (key == "serial")
+            {
+                ShowSerialPage();
+                return;
+            }
+
+            if (key == "modbus")
+            {
+                ShowModbusPage();
+                return;
+            }
+
             if (key == "logs")
             {
                 ShowLogConfigPage();
@@ -335,6 +346,12 @@ public partial class Form1 : Form
             if (key == "dashboard")
             {
                 ShowAgentDashboardPage();
+                return;
+            }
+
+            if (key == "settings")
+            {
+                ShowSimulationSettingsPage();
                 return;
             }
 
@@ -372,6 +389,901 @@ public partial class Form1 : Form
         _contentPanel.ResumeLayout(true);
 
         AddDemoRows();
+    }
+
+    private void ShowSerialPage()
+    {
+        SetActiveNav("serial");
+        _contentPanel.SuspendLayout();
+        _contentPanel.Controls.Clear();
+
+        var serialOpened = false;
+        var logGrid = CreateStoredLogGrid();
+        var statusLabel = CreateInlineStatus("串口未打开");
+        statusLabel.Dock = DockStyle.Fill;
+        statusLabel.Margin = new Padding(S(10), 0, 0, 0);
+
+        var root = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            BackColor = AppBackground,
+            ColumnCount = 1,
+            RowCount = 3,
+        };
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, S(74)));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, S(148)));
+        root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+
+        var connectionPanel = CreateSurfacePanel();
+        var connectionLayout = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            BackColor = Surface,
+            Padding = new Padding(S(14), S(10), S(14), S(10)),
+            ColumnCount = 1,
+            RowCount = 3,
+        };
+        connectionLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, S(28)));
+        connectionLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, S(54)));
+        connectionLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, S(38)));
+        connectionLayout.Controls.Add(CreateSectionTitle("串口参数"), 0, 0);
+
+        var fields = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 5,
+            RowCount = 1,
+        };
+        fields.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, S(120)));
+        fields.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, S(112)));
+        fields.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, S(84)));
+        fields.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, S(84)));
+        fields.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, S(96)));
+
+        var portBox = CreateComboBox(new[] { "COM1", "COM2", "COM3", "COM4" });
+        var baudBox = CreateComboBox(new[] { "9600", "19200", "38400", "57600", "115200" });
+        var dataBitsBox = CreateComboBox(new[] { "8", "7" });
+        var stopBitsBox = CreateComboBox(new[] { "1", "2" });
+        var parityBox = CreateComboBox(new[] { "None", "Even", "Odd" });
+        SetComboBoxValue(portBox, "COM3");
+        SetComboBoxValue(baudBox, "115200");
+
+        fields.Controls.Add(CreateFieldStack("COM 口", portBox), 0, 0);
+        fields.Controls.Add(CreateFieldStack("波特率", baudBox), 1, 0);
+        fields.Controls.Add(CreateFieldStack("数据位", dataBitsBox), 2, 0);
+        fields.Controls.Add(CreateFieldStack("停止位", stopBitsBox), 3, 0);
+        fields.Controls.Add(CreateFieldStack("校验位", parityBox), 4, 0);
+
+        var stateBadge = new Label
+        {
+            Text = "未打开",
+            TextAlign = ContentAlignment.MiddleCenter,
+            BackColor = Color.FromArgb(229, 233, 239),
+            ForeColor = TextMuted,
+            Dock = DockStyle.Top,
+            Height = S(34),
+        };
+        var openButton = CreatePrimaryButton("打开串口");
+        var closeButton = CreateSecondaryButton("关闭串口");
+        openButton.Dock = DockStyle.Top;
+        closeButton.Dock = DockStyle.Top;
+        openButton.Margin = new Padding(0, 0, S(8), 0);
+        closeButton.Margin = new Padding(0, 0, S(8), 0);
+
+        var actionRow = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 4,
+            RowCount = 1,
+        };
+        actionRow.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, S(96)));
+        actionRow.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, S(96)));
+        actionRow.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, S(112)));
+        actionRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        actionRow.Controls.Add(openButton, 0, 0);
+        actionRow.Controls.Add(closeButton, 1, 0);
+        actionRow.Controls.Add(stateBadge, 2, 0);
+        actionRow.Controls.Add(statusLabel, 3, 0);
+
+        connectionLayout.Controls.Add(fields, 0, 1);
+        connectionLayout.Controls.Add(actionRow, 0, 2);
+        connectionPanel.Controls.Add(connectionLayout);
+
+        var commandArea = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            BackColor = AppBackground,
+            ColumnCount = 2,
+            RowCount = 1,
+            Padding = new Padding(0, S(10), 0, S(12)),
+        };
+        commandArea.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 42));
+        commandArea.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 58));
+
+        var sendPanel = CreateSurfacePanel();
+        sendPanel.Margin = new Padding(0, 0, S(8), 0);
+        var sendLayout = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            BackColor = Surface,
+            Padding = new Padding(S(14), S(10), S(14), S(12)),
+            ColumnCount = 1,
+            RowCount = 4,
+        };
+        sendLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, S(26)));
+        sendLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, S(28)));
+        sendLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, S(40)));
+        sendLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        sendLayout.Controls.Add(CreateSectionTitle("串口发送"), 0, 0);
+
+        var hexRadio = new RadioButton
+        {
+            Text = "HEX",
+            Checked = true,
+            ForeColor = TextMain,
+            AutoSize = true,
+        };
+        var asciiRadio = new RadioButton
+        {
+            Text = "ASCII",
+            ForeColor = TextMain,
+            AutoSize = true,
+        };
+        var modePanel = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            FlowDirection = FlowDirection.LeftToRight,
+            WrapContents = false,
+        };
+        hexRadio.Margin = new Padding(0, S(5), S(12), 0);
+        asciiRadio.Margin = new Padding(0, S(5), 0, 0);
+        modePanel.Controls.Add(hexRadio);
+        modePanel.Controls.Add(asciiRadio);
+
+        var presetBox = CreateComboBox(new[]
+        {
+            "读温度 | 02 03 00 10 00 02",
+            "设备状态 | STATUS",
+            "CRC异常 | 02 03 CRC",
+            "超时 | TIMEOUT",
+        });
+        var fillButton = CreateSecondaryButton("填入");
+        fillButton.Dock = DockStyle.Fill;
+        fillButton.Margin = new Padding(S(8), 0, 0, 0);
+        var presetGrid = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 2,
+            RowCount = 1,
+        };
+        presetGrid.RowStyles.Add(new RowStyle(SizeType.Absolute, S(34)));
+        presetGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        presetGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, S(94)));
+        presetGrid.Controls.Add(presetBox, 0, 0);
+        presetGrid.Controls.Add(fillButton, 1, 0);
+
+        var sendTextBox = new TextBox
+        {
+            Text = "02 03 00 10 00 02",
+            Multiline = true,
+            BorderStyle = BorderStyle.FixedSingle,
+            BackColor = Color.FromArgb(252, 253, 255),
+            ForeColor = TextMain,
+            Dock = DockStyle.Fill,
+            Font = new Font("Consolas", 10F, FontStyle.Regular, GraphicsUnit.Point),
+            Margin = new Padding(0),
+        };
+        var sendButton = CreatePrimaryButton("发送");
+        var clearButton = CreateSecondaryButton("清空");
+        var commandGrid = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 2,
+            RowCount = 1,
+        };
+        commandGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        commandGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, S(88)));
+        var buttonStack = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            Padding = new Padding(S(6), 0, 0, 0),
+            ColumnCount = 1,
+            RowCount = 4,
+        };
+        buttonStack.RowStyles.Add(new RowStyle(SizeType.Absolute, S(34)));
+        buttonStack.RowStyles.Add(new RowStyle(SizeType.Absolute, S(10)));
+        buttonStack.RowStyles.Add(new RowStyle(SizeType.Absolute, S(34)));
+        buttonStack.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        buttonStack.Controls.Add(sendButton, 0, 0);
+        buttonStack.Controls.Add(clearButton, 0, 2);
+        commandGrid.Controls.Add(sendTextBox, 0, 0);
+        commandGrid.Controls.Add(buttonStack, 1, 0);
+
+        sendLayout.Controls.Add(modePanel, 0, 1);
+        sendLayout.Controls.Add(presetGrid, 0, 2);
+        sendLayout.Controls.Add(commandGrid, 0, 3);
+        sendPanel.Controls.Add(sendLayout);
+
+        var receivePanel = CreateSurfacePanel();
+        receivePanel.Margin = new Padding(S(8), 0, 0, 0);
+        var receiveLayout = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            BackColor = Surface,
+            Padding = new Padding(S(14), S(10), S(14), S(12)),
+            ColumnCount = 1,
+            RowCount = 3,
+        };
+        receiveLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, S(26)));
+        receiveLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, S(26)));
+        receiveLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        receiveLayout.Controls.Add(CreateSectionTitle("串口接收"), 0, 0);
+        receiveLayout.Controls.Add(new Label
+        {
+            Text = "模拟设备返回的原始串口数据",
+            ForeColor = TextMuted,
+            Dock = DockStyle.Fill,
+            TextAlign = ContentAlignment.MiddleLeft,
+        }, 0, 1);
+        var receiveTextBox = new TextBox
+        {
+            ReadOnly = true,
+            Multiline = true,
+            BorderStyle = BorderStyle.FixedSingle,
+            BackColor = TerminalBackground,
+            ForeColor = TerminalText,
+            Text = "等待串口打开...",
+            Dock = DockStyle.Fill,
+            Font = new Font("Consolas", 10F, FontStyle.Regular, GraphicsUnit.Point),
+            Margin = new Padding(0),
+        };
+        receiveLayout.Controls.Add(receiveTextBox, 0, 2);
+        receivePanel.Controls.Add(receiveLayout);
+        var logPanel = CreateProtocolLogPanel("最近串口日志", logGrid);
+        logPanel.Margin = new Padding(S(8), S(8), 0, 0);
+        receivePanel.Margin = new Padding(S(8), 0, 0, S(8));
+
+        var rightStack = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            BackColor = AppBackground,
+            ColumnCount = 1,
+            RowCount = 2,
+        };
+        rightStack.RowStyles.Add(new RowStyle(SizeType.Percent, 46));
+        rightStack.RowStyles.Add(new RowStyle(SizeType.Percent, 54));
+        rightStack.Controls.Add(receivePanel, 0, 0);
+        rightStack.Controls.Add(logPanel, 0, 1);
+
+        commandArea.Controls.Add(sendPanel, 0, 0);
+        commandArea.Controls.Add(rightStack, 1, 0);
+
+        openButton.Click += (_, _) =>
+        {
+            serialOpened = true;
+            stateBadge.Text = "已打开";
+            stateBadge.BackColor = Color.FromArgb(220, 244, 232);
+            stateBadge.ForeColor = Success;
+            receiveTextBox.Text = $"{portBox.Text} 已打开，波特率 {baudBox.Text}。";
+            SetStatus(statusLabel, "串口已打开，可以发送模拟指令", Success);
+            AppendStandaloneLogRow("Serial", "System", $"打开 {portBox.Text} {baudBox.Text},{dataBitsBox.Text},{parityBox.Text},{stopBitsBox.Text}", "Success", "8", "", logGrid, "Serial");
+        };
+
+        closeButton.Click += (_, _) =>
+        {
+            serialOpened = false;
+            stateBadge.Text = "未打开";
+            stateBadge.BackColor = Color.FromArgb(229, 233, 239);
+            stateBadge.ForeColor = TextMuted;
+            receiveTextBox.Text = "串口已关闭。";
+            SetStatus(statusLabel, "串口已关闭", TextMuted);
+            AppendStandaloneLogRow("Serial", "System", $"关闭 {portBox.Text}", "Success", "0", "", logGrid, "Serial");
+        };
+
+        fillButton.Click += (_, _) =>
+        {
+            var text = presetBox.Text;
+            var separatorIndex = text.IndexOf('|');
+            var command = separatorIndex >= 0 ? text[(separatorIndex + 1)..].Trim() : text.Trim();
+            sendTextBox.Text = command;
+            asciiRadio.Checked = command.Equals("STATUS", StringComparison.OrdinalIgnoreCase);
+            hexRadio.Checked = !asciiRadio.Checked;
+        };
+
+        sendButton.Click += (_, _) =>
+        {
+            var content = sendTextBox.Text.Trim();
+            if (string.IsNullOrWhiteSpace(content))
+            {
+                receiveTextBox.Text = "没有发送内容。";
+                SetStatus(statusLabel, "发送失败：内容为空", Danger);
+                AppendStandaloneLogRow("Serial", "Send", "空指令", "Failed", "0", "EmptyCommand", logGrid, "Serial");
+                return;
+            }
+
+            if (!serialOpened)
+            {
+                receiveTextBox.Text = "串口还没打开，先点打开串口。";
+                SetStatus(statusLabel, "发送失败：串口未打开", Danger);
+                AppendStandaloneLogRow("Serial", "Send", content, "Failed", "0", "PortClosed", logGrid, "Serial");
+                return;
+            }
+
+            var mode = hexRadio.Checked ? "HEX" : "ASCII";
+            AppendStandaloneLogRow("Serial", "Send", $"{mode}: {content}", "Success", "0", "", logGrid, "Serial");
+            var response = CreateSerialResponse(content, mode);
+            receiveTextBox.Text = response.Content;
+            SetStatus(statusLabel, response.Status == "Success" ? "已收到模拟串口返回" : $"异常：{response.ErrorType}", response.Status == "Success" ? Success : Danger);
+            AppendStandaloneLogRow("Serial", "Receive", response.Content, response.Status, response.DurationMs, response.ErrorType, logGrid, "Serial");
+        };
+
+        clearButton.Click += (_, _) => sendTextBox.Clear();
+
+        root.Controls.Add(BuildPageTitle("串口通信调试", "模拟 COM 口参数、发送指令、接收返回，并写入结构化日志。"), 0, 0);
+        root.Controls.Add(connectionPanel, 0, 1);
+        root.Controls.Add(commandArea, 0, 2);
+        _contentPanel.Controls.Add(root);
+        _contentPanel.ResumeLayout(true);
+        RefreshProtocolLogRows(logGrid, "Serial");
+    }
+
+    private void ShowModbusPage()
+    {
+        SetActiveNav("modbus");
+        _contentPanel.SuspendLayout();
+        _contentPanel.Controls.Clear();
+
+        var connected = false;
+        var logGrid = CreateStoredLogGrid();
+        var statusLabel = CreateInlineStatus("Modbus TCP 未连接");
+        statusLabel.Dock = DockStyle.Fill;
+        statusLabel.Margin = new Padding(S(10), 0, 0, 0);
+
+        var root = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            BackColor = AppBackground,
+            ColumnCount = 1,
+            RowCount = 4,
+        };
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, S(74)));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, S(148)));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, S(152)));
+        root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+
+        var targetPanel = CreateSurfacePanel();
+        var targetLayout = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            BackColor = Surface,
+            Padding = new Padding(S(14), S(10), S(14), S(10)),
+            ColumnCount = 1,
+            RowCount = 3,
+        };
+        targetLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, S(28)));
+        targetLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, S(54)));
+        targetLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, S(38)));
+        targetLayout.Controls.Add(CreateSectionTitle("目标 PLC"), 0, 0);
+
+        var targetFields = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 3,
+            RowCount = 1,
+        };
+        targetFields.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 46));
+        targetFields.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 26));
+        targetFields.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 28));
+        var ipBox = CreateInput(_connectionConfig.IpAddress);
+        var portBox = CreateInput("502");
+        var unitBox = CreateInput("1");
+        targetFields.Controls.Add(CreateFieldStack("IP 地址", ipBox), 0, 0);
+        targetFields.Controls.Add(CreateFieldStack("端口", portBox), 1, 0);
+        targetFields.Controls.Add(CreateFieldStack("站号", unitBox), 2, 0);
+
+        var stateBadge = new Label
+        {
+            Text = "未连接",
+            TextAlign = ContentAlignment.MiddleCenter,
+            BackColor = Color.FromArgb(229, 233, 239),
+            ForeColor = TextMuted,
+            Dock = DockStyle.Top,
+            Height = S(34),
+        };
+        var connectButton = CreatePrimaryButton("连接");
+        var disconnectButton = CreateSecondaryButton("断开");
+        connectButton.Dock = DockStyle.Top;
+        disconnectButton.Dock = DockStyle.Top;
+        connectButton.Margin = new Padding(0, 0, S(8), 0);
+        disconnectButton.Margin = new Padding(0, 0, S(8), 0);
+        var targetActions = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 4,
+            RowCount = 1,
+        };
+        targetActions.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, S(86)));
+        targetActions.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, S(86)));
+        targetActions.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, S(100)));
+        targetActions.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        targetActions.Controls.Add(connectButton, 0, 0);
+        targetActions.Controls.Add(disconnectButton, 1, 0);
+        targetActions.Controls.Add(stateBadge, 2, 0);
+        targetActions.Controls.Add(statusLabel, 3, 0);
+        targetLayout.Controls.Add(targetFields, 0, 1);
+        targetLayout.Controls.Add(targetActions, 0, 2);
+        targetPanel.Controls.Add(targetLayout);
+
+        var operationPanel = CreateSurfacePanel();
+        operationPanel.Margin = new Padding(0, S(10), 0, S(10));
+        var operationLayout = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            BackColor = Surface,
+            Padding = new Padding(S(14), S(10), S(14), S(10)),
+            ColumnCount = 2,
+            RowCount = 1,
+        };
+        operationLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 52));
+        operationLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 48));
+
+        var readLayout = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 1,
+            RowCount = 4,
+            Margin = new Padding(0, 0, S(12), 0),
+        };
+        readLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, S(28)));
+        readLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, S(54)));
+        readLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, S(38)));
+        readLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        readLayout.Controls.Add(CreateSectionTitle("读取保持寄存器"), 0, 0);
+        var readFields = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 2,
+            RowCount = 1,
+        };
+        readFields.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+        readFields.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+        var readStartBox = CreateInput("0");
+        var readCountBox = CreateInput("4");
+        readFields.Controls.Add(CreateFieldStack("起始地址", readStartBox), 0, 0);
+        readFields.Controls.Add(CreateFieldStack("数量", readCountBox), 1, 0);
+        var readButton = CreatePrimaryButton("读取");
+        readButton.Dock = DockStyle.Top;
+        readLayout.Controls.Add(readFields, 0, 1);
+        readLayout.Controls.Add(readButton, 0, 2);
+
+        var writeLayout = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 1,
+            RowCount = 4,
+            Margin = new Padding(S(12), 0, 0, 0),
+        };
+        writeLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, S(28)));
+        writeLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, S(54)));
+        writeLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, S(38)));
+        writeLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        writeLayout.Controls.Add(CreateSectionTitle("写入单个寄存器"), 0, 0);
+        var writeFields = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 2,
+            RowCount = 1,
+        };
+        writeFields.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+        writeFields.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+        var writeAddressBox = CreateInput("1");
+        var writeValueBox = CreateInput("100");
+        writeFields.Controls.Add(CreateFieldStack("地址", writeAddressBox), 0, 0);
+        writeFields.Controls.Add(CreateFieldStack("值", writeValueBox), 1, 0);
+        var writeButton = CreatePrimaryButton("写入");
+        writeButton.Dock = DockStyle.Top;
+        writeLayout.Controls.Add(writeFields, 0, 1);
+        writeLayout.Controls.Add(writeButton, 0, 2);
+
+        operationLayout.Controls.Add(readLayout, 0, 0);
+        operationLayout.Controls.Add(writeLayout, 1, 0);
+        operationPanel.Controls.Add(operationLayout);
+
+        var bottomGrid = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            BackColor = AppBackground,
+            ColumnCount = 2,
+            RowCount = 1,
+        };
+        bottomGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 45));
+        bottomGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 55));
+
+        var registerGrid = CreateRegisterGrid();
+        var registerPanel = CreateSurfacePanel();
+        registerPanel.Margin = new Padding(0, 0, S(8), 0);
+        registerPanel.Padding = new Padding(S(14), S(12), S(14), S(16));
+        var registerLayout = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 1,
+            RowCount = 2,
+        };
+        registerLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, S(34)));
+        registerLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        registerLayout.Controls.Add(CreateSectionTitle("寄存器数据"), 0, 0);
+        registerLayout.Controls.Add(registerGrid, 0, 1);
+        registerPanel.Controls.Add(registerLayout);
+
+        var logPanel = CreateProtocolLogPanel("最近 Modbus 日志", logGrid);
+        logPanel.Margin = new Padding(S(8), 0, 0, 0);
+        bottomGrid.Controls.Add(registerPanel, 0, 0);
+        bottomGrid.Controls.Add(logPanel, 1, 0);
+
+        connectButton.Click += (_, _) =>
+        {
+            if (!int.TryParse(portBox.Text.Trim(), out _) || !int.TryParse(unitBox.Text.Trim(), out _))
+            {
+                SetStatus(statusLabel, "端口和 Unit ID 必须是数字", Danger);
+                return;
+            }
+
+            connected = true;
+            stateBadge.Text = "已连接";
+            stateBadge.BackColor = Color.FromArgb(220, 244, 232);
+            stateBadge.ForeColor = Success;
+            SetStatus(statusLabel, "已连接模拟 Modbus TCP Server", Success);
+            AppendStandaloneLogRow("ModbusTCP", "System", $"连接 {ipBox.Text.Trim()}:{portBox.Text.Trim()} Unit={unitBox.Text.Trim()}", "Success", "15", "", logGrid, "ModbusTCP");
+        };
+
+        disconnectButton.Click += (_, _) =>
+        {
+            connected = false;
+            stateBadge.Text = "未连接";
+            stateBadge.BackColor = Color.FromArgb(229, 233, 239);
+            stateBadge.ForeColor = TextMuted;
+            SetStatus(statusLabel, "Modbus TCP 已断开", TextMuted);
+            AppendStandaloneLogRow("ModbusTCP", "System", "断开 Modbus TCP", "Success", "0", "", logGrid, "ModbusTCP");
+        };
+
+        readButton.Click += (_, _) =>
+        {
+            if (!connected)
+            {
+                SetStatus(statusLabel, "读取失败：未连接", Danger);
+                AppendStandaloneLogRow("ModbusTCP", "Send", "ReadHoldingRegisters", "Failed", "0", "Disconnected", logGrid, "ModbusTCP");
+                return;
+            }
+
+            if (!int.TryParse(readStartBox.Text.Trim(), out var startAddress) || !int.TryParse(readCountBox.Text.Trim(), out var count) || count <= 0)
+            {
+                SetStatus(statusLabel, "读取失败：地址和数量必须是有效数字", Danger);
+                AppendStandaloneLogRow("ModbusTCP", "Send", $"Read start={readStartBox.Text} count={readCountBox.Text}", "Failed", "0", "InvalidAddress", logGrid, "ModbusTCP");
+                return;
+            }
+
+            AppendStandaloneLogRow("ModbusTCP", "Send", $"03 ReadHoldingRegisters start={startAddress} count={count}", "Success", "0", "", logGrid, "ModbusTCP");
+            if (startAddress == 99 || count > 16)
+            {
+                SetStatus(statusLabel, "读取失败：模拟 Modbus 异常", Danger);
+                AppendStandaloneLogRow("ModbusTCP", "Receive", "83 02 IllegalDataAddress", "Failed", "38", "ModbusException", logGrid, "ModbusTCP");
+                return;
+            }
+
+            registerGrid.Rows.Clear();
+            var values = CreateModbusRegisterValues(startAddress, count);
+            foreach (var item in values)
+            {
+                registerGrid.Rows.Add(item.Address, item.Value, $"0x{item.Value:X4}", item.Note);
+            }
+
+            SetStatus(statusLabel, $"读取成功：{count} 个保持寄存器", Success);
+            AppendStandaloneLogRow("ModbusTCP", "Receive", $"03 {count * 2:X2} {string.Join(' ', values.Select(item => item.Value.ToString("X4")))}", "Success", "32", "", logGrid, "ModbusTCP");
+        };
+
+        writeButton.Click += (_, _) =>
+        {
+            if (!connected)
+            {
+                SetStatus(statusLabel, "写入失败：未连接", Danger);
+                AppendStandaloneLogRow("ModbusTCP", "Send", "WriteSingleRegister", "Failed", "0", "Disconnected", logGrid, "ModbusTCP");
+                return;
+            }
+
+            if (!int.TryParse(writeAddressBox.Text.Trim(), out var address) || !int.TryParse(writeValueBox.Text.Trim(), out var value))
+            {
+                SetStatus(statusLabel, "写入失败：地址和值必须是数字", Danger);
+                AppendStandaloneLogRow("ModbusTCP", "Send", $"Write address={writeAddressBox.Text} value={writeValueBox.Text}", "Failed", "0", "InvalidValue", logGrid, "ModbusTCP");
+                return;
+            }
+
+            AppendStandaloneLogRow("ModbusTCP", "Send", $"06 WriteSingleRegister address={address} value={value}", "Success", "0", "", logGrid, "ModbusTCP");
+            if (address == 13 || value > 9999)
+            {
+                SetStatus(statusLabel, "写入失败：模拟寄存器拒绝", Danger);
+                AppendStandaloneLogRow("ModbusTCP", "Receive", "86 03 IllegalDataValue", "Failed", "35", "ModbusException", logGrid, "ModbusTCP");
+                return;
+            }
+
+            registerGrid.Rows.Add(address, value, $"0x{value:X4}", "刚写入");
+            SetStatus(statusLabel, $"写入成功：地址 {address} = {value}", Success);
+            AppendStandaloneLogRow("ModbusTCP", "Receive", $"06 {address:X4} {value:X4}", "Success", "29", "", logGrid, "ModbusTCP");
+        };
+
+        root.Controls.Add(BuildPageTitle("Modbus TCP 读写", "模拟读取保持寄存器、写入单个寄存器和异常码。"), 0, 0);
+        root.Controls.Add(targetPanel, 0, 1);
+        root.Controls.Add(operationPanel, 0, 2);
+        root.Controls.Add(bottomGrid, 0, 3);
+        _contentPanel.Controls.Add(root);
+        _contentPanel.ResumeLayout(true);
+        RefreshProtocolLogRows(logGrid, "ModbusTCP");
+    }
+
+    private void ShowSimulationSettingsPage()
+    {
+        SetActiveNav("settings");
+        _contentPanel.SuspendLayout();
+        _contentPanel.Controls.Clear();
+
+        var statusLabel = CreateInlineStatus($"配置文件：{CommunicationConfigStore.DefaultFilePath}");
+        statusLabel.Height = S(24);
+        var logStatusLabel = CreateInlineStatus("日志文件已就绪");
+        var entries = CommunicationLogStore.Load();
+        var tcpCount = entries.Count(entry => entry.Protocol.StartsWith("TCP", StringComparison.OrdinalIgnoreCase));
+        var serialCount = entries.Count(entry => entry.Protocol.Equals("Serial", StringComparison.OrdinalIgnoreCase));
+        var modbusCount = entries.Count(entry => entry.Protocol.Equals("ModbusTCP", StringComparison.OrdinalIgnoreCase));
+
+        var root = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            BackColor = AppBackground,
+            ColumnCount = 1,
+            RowCount = 3,
+        };
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, S(74)));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, S(116)));
+        root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+
+        var overviewPanel = CreateSurfacePanel();
+        var overviewLayout = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            BackColor = Surface,
+            Padding = new Padding(S(16), S(8), S(16), S(8)),
+            ColumnCount = 1,
+            RowCount = 2,
+        };
+        overviewLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, S(24)));
+        overviewLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        overviewLayout.Controls.Add(CreateSectionTitle("模拟数据概览"), 0, 0);
+
+        var metricGrid = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            BackColor = Surface,
+            ColumnCount = 4,
+            RowCount = 1,
+        };
+        for (var i = 0; i < 4; i++)
+        {
+            metricGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 25));
+        }
+
+        metricGrid.Controls.Add(CreateOverviewMetricCard("总日志", CreateMetricValue(entries.Count.ToString(), TextMuted)), 0, 0);
+        metricGrid.Controls.Add(CreateOverviewMetricCard("TCP", CreateMetricValue(tcpCount.ToString(), Primary)), 1, 0);
+        metricGrid.Controls.Add(CreateOverviewMetricCard("串口", CreateMetricValue(serialCount.ToString(), Success)), 2, 0);
+        metricGrid.Controls.Add(CreateOverviewMetricCard("Modbus", CreateMetricValue(modbusCount.ToString(), Warning)), 3, 0);
+        overviewLayout.Controls.Add(metricGrid, 0, 1);
+        overviewPanel.Controls.Add(overviewLayout);
+
+        var content = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            BackColor = AppBackground,
+            ColumnCount = 2,
+            RowCount = 1,
+            Padding = new Padding(0, S(8), 0, 0),
+        };
+        content.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 48));
+        content.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 52));
+
+        var configPanel = CreateSurfacePanel();
+        configPanel.Margin = new Padding(0, 0, S(8), 0);
+        var configLayout = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            BackColor = Surface,
+            Padding = new Padding(S(16), S(12), S(16), S(10)),
+            ColumnCount = 1,
+            RowCount = 6,
+        };
+        configLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, S(26)));
+        configLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, S(38)));
+        configLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, S(56)));
+        configLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, S(56)));
+        configLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, S(56)));
+        configLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+
+        var deviceModelBox = CreateComboBox(new[] { "温控采集器", "压力传感器", "通用 PLC" });
+        var ipBox = CreateInput(_connectionConfig.IpAddress);
+        var portBox = CreateInput(_connectionConfig.Port);
+        var commandBox = CreateInput(_connectionConfig.DefaultCommand);
+        var displayModeBox = CreateComboBox(new[] { "HEX", "ASCII" });
+        var errorModeBox = CreateComboBox(new[] { "正常返回", "偶发超时", "断开连接", "Modbus 异常" });
+        SetComboBoxValue(deviceModelBox, _connectionConfig.DeviceModel);
+        SetComboBoxValue(displayModeBox, _connectionConfig.DisplayMode);
+
+        var fieldRow1 = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 2,
+            RowCount = 1,
+        };
+        fieldRow1.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 54));
+        fieldRow1.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 46));
+        fieldRow1.Controls.Add(CreateSettingsFieldStack("设备模型", deviceModelBox), 0, 0);
+        fieldRow1.Controls.Add(CreateSettingsFieldStack("默认 IP", ipBox), 1, 0);
+
+        var fieldRow2 = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 2,
+            RowCount = 1,
+        };
+        fieldRow2.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 34));
+        fieldRow2.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 66));
+        fieldRow2.Controls.Add(CreateSettingsFieldStack("默认端口", portBox), 0, 0);
+        fieldRow2.Controls.Add(CreateSettingsFieldStack("默认指令", commandBox), 1, 0);
+
+        var fieldRow3 = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 2,
+            RowCount = 1,
+        };
+        fieldRow3.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 42));
+        fieldRow3.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 58));
+        fieldRow3.Controls.Add(CreateSettingsFieldStack("显示格式", displayModeBox), 0, 0);
+        fieldRow3.Controls.Add(CreateSettingsFieldStack("模拟异常模式", errorModeBox), 1, 0);
+
+        var configButtons = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 2,
+            RowCount = 1,
+            Margin = new Padding(0),
+            Padding = new Padding(0),
+        };
+        configButtons.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+        configButtons.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+        var saveButton = CreatePrimaryButton("保存配置");
+        var loadButton = CreateSecondaryButton("读取配置");
+        saveButton.Dock = DockStyle.Top;
+        loadButton.Dock = DockStyle.Top;
+        saveButton.Margin = new Padding(0, S(2), S(6), 0);
+        loadButton.Margin = new Padding(S(6), S(2), 0, 0);
+        configButtons.Controls.Add(saveButton, 0, 0);
+        configButtons.Controls.Add(loadButton, 1, 0);
+
+        configLayout.Controls.Add(CreateSectionTitle("默认模拟参数"), 0, 0);
+        configLayout.Controls.Add(configButtons, 0, 1);
+        configLayout.Controls.Add(fieldRow1, 0, 2);
+        configLayout.Controls.Add(fieldRow2, 0, 3);
+        configLayout.Controls.Add(fieldRow3, 0, 4);
+        configLayout.Controls.Add(statusLabel, 0, 5);
+        configPanel.Controls.Add(configLayout);
+
+        var rulePanel = CreateSurfacePanel();
+        rulePanel.Margin = new Padding(S(8), 0, 0, 0);
+        var ruleLayout = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            BackColor = Surface,
+            Padding = new Padding(S(16), S(12), S(16), S(16)),
+            ColumnCount = 1,
+            RowCount = 5,
+        };
+        ruleLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, S(26)));
+        ruleLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, S(82)));
+        ruleLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, S(38)));
+        ruleLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, S(26)));
+        ruleLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+
+        var tcpRules = new Label
+        {
+            Dock = DockStyle.Fill,
+            ForeColor = TextMain,
+            TextAlign = ContentAlignment.TopLeft,
+            Text = "TCP：01 03 返回寄存器数据；01 06 返回写入确认；FF FF 返回 Timeout。\r\n串口：STATUS 返回状态字符串；CRC 关键字返回 CrcError。\r\nModbus：地址 99 或数量大于 16 返回异常码；地址 13 模拟写入失败。",
+        };
+        var paths = new TextBox
+        {
+            Dock = DockStyle.Fill,
+            ReadOnly = true,
+            Multiline = true,
+            ScrollBars = ScrollBars.Vertical,
+            BorderStyle = BorderStyle.FixedSingle,
+            BackColor = SurfaceLow,
+            ForeColor = TextMuted,
+            Font = new Font("Microsoft YaHei UI", 8.6F, FontStyle.Regular),
+            Text = $"日志：{CommunicationLogStore.DefaultFilePath}\r\n配置：{CommunicationConfigStore.DefaultFilePath}\r\n导出：{CommunicationLogStore.DefaultExportDirectory}",
+        };
+        var seedButton = CreateSecondaryButton("生成示例日志");
+        seedButton.Dock = DockStyle.Top;
+        seedButton.Margin = new Padding(0, S(2), S(8), 0);
+        var seedRow = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 2,
+            RowCount = 1,
+            Margin = new Padding(0),
+            Padding = new Padding(0),
+        };
+        seedRow.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, S(124)));
+        seedRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        logStatusLabel.Dock = DockStyle.Fill;
+        logStatusLabel.Margin = new Padding(0, S(2), 0, 0);
+        seedRow.Controls.Add(seedButton, 0, 0);
+        seedRow.Controls.Add(logStatusLabel, 1, 0);
+
+        ruleLayout.Controls.Add(CreateSectionTitle("模拟规则"), 0, 0);
+        ruleLayout.Controls.Add(tcpRules, 0, 1);
+        ruleLayout.Controls.Add(seedRow, 0, 2);
+        ruleLayout.Controls.Add(CreateSectionTitle("本地数据位置"), 0, 3);
+        ruleLayout.Controls.Add(paths, 0, 4);
+        rulePanel.Controls.Add(ruleLayout);
+
+        saveButton.Click += (_, _) =>
+        {
+            if (string.IsNullOrWhiteSpace(ipBox.Text) || string.IsNullOrWhiteSpace(portBox.Text))
+            {
+                SetStatus(statusLabel, "默认 IP 和端口不能为空", Danger);
+                return;
+            }
+
+            if (!int.TryParse(portBox.Text.Trim(), out _))
+            {
+                SetStatus(statusLabel, "端口必须是数字", Danger);
+                return;
+            }
+
+            _connectionConfig = new CommunicationConnectionConfig(
+                deviceModelBox.Text,
+                ipBox.Text.Trim(),
+                portBox.Text.Trim(),
+                commandBox.Text.Trim(),
+                displayModeBox.Text);
+            CommunicationConfigStore.Save(_connectionConfig);
+            SetStatus(statusLabel, $"配置已保存；异常模式当前仅用于人工选择：{errorModeBox.Text}", Success);
+        };
+
+        loadButton.Click += (_, _) =>
+        {
+            _connectionConfig = CommunicationConfigStore.Load();
+            SetComboBoxValue(deviceModelBox, _connectionConfig.DeviceModel);
+            ipBox.Text = _connectionConfig.IpAddress;
+            portBox.Text = _connectionConfig.Port;
+            commandBox.Text = _connectionConfig.DefaultCommand;
+            SetComboBoxValue(displayModeBox, _connectionConfig.DisplayMode);
+            SetStatus(statusLabel, "配置已读取", Success);
+        };
+
+        seedButton.Click += (_, _) =>
+        {
+            AppendStandaloneLogRow("Serial", "Receive", "SERIAL;TEMP=26.4;PRESS=0.62", "Success", "24", "");
+            AppendStandaloneLogRow("Serial", "Receive", "CRC 校验失败", "Failed", "31", "CrcError");
+            AppendStandaloneLogRow("ModbusTCP", "Receive", "03 08 0064 00C8 012C 0190", "Success", "33", "");
+            AppendStandaloneLogRow("ModbusTCP", "Receive", "83 02 IllegalDataAddress", "Failed", "41", "ModbusException");
+            SetStatus(logStatusLabel, "已生成 4 条示例日志，看板会自动读到", Success);
+        };
+
+        content.Controls.Add(configPanel, 0, 0);
+        content.Controls.Add(rulePanel, 1, 0);
+        root.Controls.Add(BuildPageTitle("模拟配置", "保存默认连接参数，查看模拟规则和本地数据文件。"), 0, 0);
+        root.Controls.Add(overviewPanel, 0, 1);
+        root.Controls.Add(content, 0, 2);
+        _contentPanel.Controls.Add(root);
+        _contentPanel.ResumeLayout(true);
     }
 
     private void ShowLogConfigPage()
@@ -660,7 +1572,7 @@ public partial class Form1 : Form
             ColumnCount = 1,
             RowCount = 2,
         };
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, S(72)));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, S(86)));
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
 
         var panel = CreateSurfacePanel();
@@ -699,7 +1611,7 @@ public partial class Form1 : Form
         toolbar.Controls.Add(refreshButton, 1, 0);
         var workbenchButton = CreatePrimaryButton("Agent工作台");
         workbenchButton.Dock = DockStyle.Fill;
-        workbenchButton.Click += (_, _) => OpenExternalUrl(AgentWorkbenchUrl);
+        workbenchButton.Click += (_, _) => ShowAgentWorkbench();
         toolbar.Controls.Add(workbenchButton, 2, 0);
         layout.Controls.Add(toolbar, 0, 0);
 
@@ -750,11 +1662,12 @@ public partial class Form1 : Form
         layout.Controls.Add(detailGrid, 0, 3);
 
         panel.Controls.Add(layout);
-        root.Controls.Add(BuildPageTitle("数据看板", "软件内置看板，直接读取 JSON 日志，不需要先打开网页。"), 0, 0);
+        root.Controls.Add(BuildPageTitle("数据看板", "软件内置看板，直接读取 JSON 日志，不需要先打开网页。", relaxedStatusLine: true), 0, 0);
         root.Controls.Add(panel, 0, 1);
 
         _contentPanel.Controls.Add(root);
         _contentPanel.ResumeLayout(true);
+        AgentWorkbenchForm.WarmUpRuntime();
     }
 
     private Control CreateNativeChartCard(string titleText, Control chart)
@@ -851,15 +1764,29 @@ public partial class Form1 : Form
         return $"当前有 {failedEntries.Count} 条失败记录。\r\n\r\n最新失败：{latestFailed.Content}\r\n\r\n主要问题：{errorText}\r\n\r\n先检查连接状态、IP、端口和设备是否在线。";
     }
 
-    private static void OpenExternalUrl(string url)
+    private void ShowAgentWorkbench()
     {
-        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(url)
+        if (_agentWorkbenchForm is null || _agentWorkbenchForm.IsDisposed)
         {
-            UseShellExecute = true,
-        });
+            _agentWorkbenchForm = new AgentWorkbenchForm();
+            _agentWorkbenchForm.FormClosed += (_, _) => _agentWorkbenchForm = null;
+        }
+
+        if (!_agentWorkbenchForm.Visible)
+        {
+            _agentWorkbenchForm.Show(this);
+        }
+
+        if (_agentWorkbenchForm.WindowState == FormWindowState.Minimized)
+        {
+            _agentWorkbenchForm.WindowState = FormWindowState.Normal;
+        }
+
+        _agentWorkbenchForm.BringToFront();
+        _agentWorkbenchForm.Activate();
     }
 
-    private Control BuildPageTitle(string titleText, string subtitleText)
+    private Control BuildPageTitle(string titleText, string subtitleText, bool relaxedStatusLine = false)
     {
         var panel = new TableLayoutPanel
         {
@@ -871,7 +1798,7 @@ public partial class Form1 : Form
         panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         panel.RowStyles.Add(new RowStyle(SizeType.Absolute, S(30)));
         panel.RowStyles.Add(new RowStyle(SizeType.Absolute, S(18)));
-        panel.RowStyles.Add(new RowStyle(SizeType.Absolute, S(14)));
+        panel.RowStyles.Add(new RowStyle(SizeType.Absolute, relaxedStatusLine ? S(24) : S(14)));
 
         var title = new Label
         {
@@ -899,7 +1826,7 @@ public partial class Form1 : Form
             ForeColor = SidebarMuted,
             BackColor = AppBackground,
             Padding = new Padding(S(12), 0, S(12), 0),
-            Margin = new Padding(0, S(8), 0, 0),
+            Margin = relaxedStatusLine ? new Padding(0, S(2), 0, 0) : new Padding(0, S(8), 0, 0),
         };
 
         panel.Controls.Add(title, 0, 0);
@@ -1350,6 +2277,66 @@ public partial class Form1 : Form
         return panel;
     }
 
+    private Control CreateProtocolLogPanel(string titleText, DataGridView grid)
+    {
+        var panel = CreateSurfacePanel();
+        var layout = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            BackColor = Surface,
+            Padding = new Padding(S(16), S(12), S(16), S(16)),
+            ColumnCount = 1,
+            RowCount = 2,
+        };
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, S(34)));
+        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        layout.Controls.Add(CreateSectionTitle(titleText), 0, 0);
+        layout.Controls.Add(grid, 0, 1);
+        panel.Controls.Add(layout);
+        return panel;
+    }
+
+    private DataGridView CreateRegisterGrid()
+    {
+        var grid = new DataGridView
+        {
+            Dock = DockStyle.Fill,
+            BackgroundColor = Surface,
+            BorderStyle = BorderStyle.None,
+            CellBorderStyle = DataGridViewCellBorderStyle.SingleHorizontal,
+            GridColor = SubtleBorder,
+            AllowUserToAddRows = false,
+            AllowUserToDeleteRows = false,
+            AllowUserToResizeRows = false,
+            RowHeadersVisible = false,
+            ReadOnly = true,
+            SelectionMode = DataGridViewSelectionMode.FullRowSelect,
+            AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill,
+            EnableHeadersVisualStyles = false,
+            ColumnHeadersHeight = S(36),
+            RowTemplate = { Height = S(32) },
+        };
+        grid.ColumnHeadersDefaultCellStyle.BackColor = SurfaceLow;
+        grid.ColumnHeadersDefaultCellStyle.ForeColor = TextMain;
+        grid.ColumnHeadersDefaultCellStyle.Font = new Font(Font.FontFamily, 9F, FontStyle.Bold);
+        grid.DefaultCellStyle.BackColor = Surface;
+        grid.DefaultCellStyle.ForeColor = TextMain;
+        grid.DefaultCellStyle.SelectionBackColor = Color.FromArgb(224, 237, 255);
+        grid.DefaultCellStyle.SelectionForeColor = TextMain;
+        grid.AlternatingRowsDefaultCellStyle.BackColor = Color.FromArgb(249, 250, 252);
+
+        grid.Columns.Add("Address", "地址");
+        grid.Columns.Add("Value", "十进制值");
+        grid.Columns.Add("Hex", "HEX");
+        grid.Columns.Add("Note", "说明");
+
+        grid.Columns["Address"]!.FillWeight = 70;
+        grid.Columns["Value"]!.FillWeight = 90;
+        grid.Columns["Hex"]!.FillWeight = 90;
+        grid.Columns["Note"]!.FillWeight = 160;
+        return grid;
+    }
+
     private DataGridView CreateStoredLogGrid()
     {
         var grid = new DataGridView
@@ -1396,6 +2383,49 @@ public partial class Form1 : Form
         grid.Columns["ErrorType"]!.FillWeight = 90;
 
         return grid;
+    }
+
+    private void RefreshProtocolLogRows(DataGridView grid, string protocol)
+    {
+        var entries = CommunicationLogStore.Load()
+            .Where(entry => entry.Protocol.Equals(protocol, StringComparison.OrdinalIgnoreCase))
+            .Reverse()
+            .Take(18)
+            .Reverse()
+            .ToList();
+        PopulateStoredLogGrid(grid, entries);
+    }
+
+    private CommunicationLogEntry AppendStandaloneLogRow(
+        string protocol,
+        string direction,
+        string content,
+        string status,
+        string durationMs,
+        string errorType,
+        DataGridView? visibleGrid = null,
+        string? protocolFilter = null)
+    {
+        var entries = CommunicationLogStore.Load().ToList();
+        var entry = new CommunicationLogEntry(
+            (entries.Count + 1).ToString(),
+            DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
+            protocol,
+            direction,
+            content,
+            status,
+            ParseDurationMs(durationMs),
+            errorType);
+
+        entries.Add(entry);
+        CommunicationLogStore.Save(entries);
+
+        if (visibleGrid is not null)
+        {
+            RefreshProtocolLogRows(visibleGrid, protocolFilter ?? protocol);
+        }
+
+        return entry;
     }
 
     private void PopulateStoredLogGrid(DataGridView grid, IReadOnlyList<CommunicationLogEntry> entries)
@@ -1682,6 +2712,27 @@ public partial class Form1 : Form
         return stack;
     }
 
+    private Control CreateSettingsFieldStack(string labelText, Control input)
+    {
+        input.Dock = DockStyle.Top;
+        input.Height = S(32);
+        input.Margin = new Padding(0, S(2), 0, 0);
+
+        var stack = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 1,
+            RowCount = 2,
+            Margin = new Padding(0, 0, S(12), 0),
+        };
+        stack.RowStyles.Add(new RowStyle(SizeType.Absolute, S(16)));
+        stack.RowStyles.Add(new RowStyle(SizeType.Absolute, S(38)));
+
+        stack.Controls.Add(CreateFieldLabel(labelText), 0, 0);
+        stack.Controls.Add(input, 0, 1);
+        return stack;
+    }
+
     private void AddDemoRows()
     {
         _logGrid.Rows.Clear();
@@ -1758,6 +2809,64 @@ public partial class Form1 : Form
         }
 
         return new SimulatedResponse($"AA 55 {_simulationStep:X2} 00", "Success", durationMs, "");
+    }
+
+    private SimulatedResponse CreateSerialResponse(string command, string mode)
+    {
+        _simulationStep++;
+
+        var normalized = command.Trim().ToUpperInvariant();
+        var durationMs = (18 + _simulationStep * 5 % 38).ToString();
+
+        if (normalized.Contains("TIMEOUT"))
+        {
+            return new SimulatedResponse("串口超时：没有收到设备返回。", "Failed", "1200", "Timeout");
+        }
+
+        if (normalized.Contains("CRC"))
+        {
+            return new SimulatedResponse("CRC 校验失败：返回帧已被丢弃。", "Failed", durationMs, "CrcError");
+        }
+
+        if (mode == "ASCII")
+        {
+            if (normalized.Contains("STATUS"))
+            {
+                return new SimulatedResponse("SERIAL;RUN=1;TEMP=26.4;PRESS=0.62", "Success", durationMs, "");
+            }
+
+            return new SimulatedResponse($"SERIAL;ACK={command.Trim()}", "Success", durationMs, "");
+        }
+
+        if (normalized.StartsWith("02 03", StringComparison.Ordinal))
+        {
+            var temperature = 90 + _simulationStep * 2;
+            var pressure = 140 + _simulationStep * 4;
+            return new SimulatedResponse($"02 03 04 {FormatRegisterValue(temperature)} {FormatRegisterValue(pressure)}", "Success", durationMs, "");
+        }
+
+        return new SimulatedResponse($"02 10 {_simulationStep:X2} 00", "Success", durationMs, "");
+    }
+
+    private static IReadOnlyList<RegisterValue> CreateModbusRegisterValues(int startAddress, int count)
+    {
+        var values = new List<RegisterValue>();
+        for (var i = 0; i < count; i++)
+        {
+            var address = startAddress + i;
+            var value = 100 + address * 3 + i * 7;
+            var note = address switch
+            {
+                0 => "温度",
+                1 => "压力",
+                2 => "运行状态",
+                3 => "报警码",
+                _ => "模拟寄存器",
+            };
+            values.Add(new RegisterValue(address, value, note));
+        }
+
+        return values;
     }
 
     private static string FormatRegisterValue(int value)
@@ -1943,6 +3052,8 @@ public partial class Form1 : Form
 
     private sealed record SimulatedResponse(string Content, string Status, string DurationMs, string ErrorType);
 
+    private sealed record RegisterValue(int Address, int Value, string Note);
+
     private sealed class DurationTrendChart : Panel
     {
         private readonly IReadOnlyList<CommunicationLogEntry> _entries;
@@ -2021,13 +3132,12 @@ public partial class Form1 : Form
             base.OnPaint(e);
             e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
 
-            var plot = new Rectangle(42, 18, Math.Max(10, Width - 62), Math.Max(10, Height - 52));
+            var plot = new Rectangle(42, 28, Math.Max(10, Width - 62), Math.Max(10, Height - 62));
             DrawAxes(e.Graphics, plot);
 
             var maxValue = Math.Max(1, Math.Max(_successCount, _failedCount));
             DrawBar(e.Graphics, plot, 0, "成功", _successCount, maxValue, Success);
             DrawBar(e.Graphics, plot, 1, "失败", _failedCount, maxValue, Danger);
-            DrawAxisText(e.Graphics, plot, $"最高 {maxValue} 条", "", "");
         }
 
         private static void DrawBar(Graphics graphics, Rectangle plot, int index, string label, int value, int maxValue, Color color)
