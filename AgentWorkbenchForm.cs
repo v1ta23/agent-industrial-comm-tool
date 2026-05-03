@@ -24,8 +24,8 @@ public sealed class AgentWorkbenchForm : Form
     {
         Text = "Agent 工作台";
         StartPosition = FormStartPosition.CenterParent;
-        Size = new Size(1180, 820);
-        MinimumSize = new Size(900, 600);
+        Size = new Size(1360, 900);
+        MinimumSize = new Size(1080, 700);
 
         _webView = new WebView2
         {

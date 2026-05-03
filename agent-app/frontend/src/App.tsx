@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { BarChart, LineChart, PieChart } from "echarts/charts";
 import { GridComponent, LegendComponent, TooltipComponent } from "echarts/components";
 import { init, use, type EChartsCoreOption } from "echarts/core";
@@ -133,7 +133,7 @@ export default function App() {
     [summary.failed, summary.success],
   );
   const errorTypeData = useMemo(
-    () => toChartData(summary.errorTypeCounts, "暂无异常"),
+    () => toChartData(summary.errorTypeCounts, "暂无异常", translateErrorType),
     [summary.errorTypeCounts],
   );
   const protocolData = useMemo(
@@ -141,13 +141,28 @@ export default function App() {
     [summary.protocolCounts],
   );
   const advice = analysis.suggestions.length > 0
-    ? analysis.suggestions
+    ? analysis.suggestions.map(translateAnalysisText)
     : ["Agent 正在等待可分析的通信日志。"];
   const evidence = analysis.evidence.length > 0
-    ? analysis.evidence
+    ? analysis.evidence.map(translateAnalysisText)
     : ["暂无分析依据。"];
   const levelText = translateAnalysisLevel(analysis.level);
+  const focusText = translateAnalysisText(analysis.focus);
+  const summaryText = translateAnalysisText(analysis.summary);
   const generatedAt = formatGeneratedAt(analysis.generatedAt);
+  const visualPackets: CommunicationLogEntry[] = recentLogs.length > 0
+    ? recentLogs.slice(0, 6)
+    : [{
+      id: "waiting",
+      time: "",
+      protocol: "WAIT",
+      direction: "System",
+      content: "等待日志",
+      status: "Idle",
+      durationMs: 0,
+      errorType: "",
+    }];
+  const radarStyle = { "--success-rate": `${successRate * 3.6}deg` } as CSSProperties;
 
   return (
     <main className="app-shell">
@@ -212,10 +227,32 @@ export default function App() {
             </div>
           </div>
 
+          <div className="signal-visual" aria-label="通信状态可视化">
+            <div className={`radar-core ${analysis.level}`} style={radarStyle}>
+              <span className="radar-grid" aria-hidden="true" />
+              <span className="radar-sweep" aria-hidden="true" />
+              <strong>{successRate}%</strong>
+              <small>链路稳定度</small>
+            </div>
+
+            <div className="signal-lanes" aria-label="最近通信流">
+              {visualPackets.map((item, index) => (
+                <span
+                  className={`signal-packet ${item.status === "Success" ? "success" : item.status === "Idle" ? "idle" : "danger"}`}
+                  key={item.id}
+                  style={{ "--delay": `${index * 0.18}s` } as CSSProperties}
+                >
+                  <b>{item.protocol}</b>
+                  <i>{item.durationMs > 0 ? `${item.durationMs} ms` : "等待"}</i>
+                </span>
+              ))}
+            </div>
+          </div>
+
           <div className="overview-control">
             <div className={`status-chip ${analysis.level}`}>
               <span>{levelText}</span>
-              <strong>{analysis.focus}</strong>
+              <strong>{focusText}</strong>
             </div>
 
             <section className="metrics" aria-label="日志概览">
@@ -230,9 +267,9 @@ export default function App() {
         <section id="agent" className={`agent-board ${analysis.level}`} aria-label="Agent 分析">
           <div className="agent-primary">
             <p className="eyebrow">Agent 判断</p>
-            <h2>{analysis.summary}</h2>
+            <h2>{summaryText}</h2>
             <div className="analysis-foot">
-              <span>{analysis.focus}</span>
+              <span>{focusText}</span>
               {generatedAt ? <time dateTime={analysis.generatedAt}>{generatedAt}</time> : null}
             </div>
           </div>
@@ -412,6 +449,8 @@ function buildDurationOption(items: CommunicationLogEntry[]): EChartsCoreOption 
   const chartItems = items.length > 0 ? items : [{ id: "empty", time: "暂无数据", durationMs: 0 } as CommunicationLogEntry];
 
   return {
+    animationDuration: 850,
+    animationEasing: "cubicOut",
     tooltip: { trigger: "axis", borderColor: chartPalette.grid, textStyle: { color: "#1f2633" } },
     grid: { left: 48, right: 20, top: 30, bottom: 44 },
     xAxis: {
@@ -431,11 +470,12 @@ function buildDurationOption(items: CommunicationLogEntry[]): EChartsCoreOption 
       {
         type: "line",
         smooth: true,
-        symbolSize: 7,
+        symbolSize: 8,
         data: chartItems.map((item) => item.durationMs),
-        lineStyle: { color: chartPalette.primary, width: 3 },
-        itemStyle: { color: chartPalette.primary },
+        lineStyle: { color: chartPalette.primary, width: 4, shadowBlur: 12, shadowColor: "rgba(0, 61, 155, 0.22)" },
+        itemStyle: { color: chartPalette.primary, borderColor: "#ffffff", borderWidth: 2 },
         areaStyle: { color: chartPalette.primarySoft },
+        emphasis: { focus: "series", scale: true },
       },
     ],
   };
@@ -443,6 +483,8 @@ function buildDurationOption(items: CommunicationLogEntry[]): EChartsCoreOption 
 
 function buildStatusOption(items: ChartItem[]): EChartsCoreOption {
   return {
+    animationDuration: 760,
+    animationEasing: "quarticOut",
     tooltip: { borderColor: chartPalette.grid },
     grid: { left: 44, right: 16, top: 28, bottom: 34 },
     xAxis: {
@@ -461,6 +503,8 @@ function buildStatusOption(items: ChartItem[]): EChartsCoreOption {
       {
         type: "bar",
         barWidth: 38,
+        showBackground: true,
+        backgroundStyle: { color: "#eef2f7", borderRadius: [4, 4, 0, 0] },
         data: [
           { value: items[0]?.value ?? 0, itemStyle: { color: chartPalette.success, borderRadius: [4, 4, 0, 0] } },
           { value: items[1]?.value ?? 0, itemStyle: { color: chartPalette.danger, borderRadius: [4, 4, 0, 0] } },
@@ -472,12 +516,15 @@ function buildStatusOption(items: ChartItem[]): EChartsCoreOption {
 
 function buildPieOption(items: ChartItem[]): EChartsCoreOption {
   return {
+    animationDuration: 900,
+    animationEasing: "cubicOut",
     tooltip: { trigger: "item", borderColor: chartPalette.grid },
     legend: { bottom: 0, icon: "circle", textStyle: { color: chartPalette.axis } },
     series: [
       {
         type: "pie",
-        radius: ["46%", "70%"],
+        roseType: "radius",
+        radius: ["38%", "76%"],
         center: ["50%", "42%"],
         data: items,
         color: [chartPalette.danger, chartPalette.warning, chartPalette.neutral, chartPalette.primary],
@@ -489,6 +536,8 @@ function buildPieOption(items: ChartItem[]): EChartsCoreOption {
 
 function buildProtocolOption(items: ChartItem[]): EChartsCoreOption {
   return {
+    animationDuration: 760,
+    animationEasing: "quarticOut",
     tooltip: { borderColor: chartPalette.grid },
     grid: { left: 44, right: 16, top: 28, bottom: 34 },
     xAxis: {
@@ -507,6 +556,8 @@ function buildProtocolOption(items: ChartItem[]): EChartsCoreOption {
       {
         type: "bar",
         barWidth: 36,
+        showBackground: true,
+        backgroundStyle: { color: "#eef2f7", borderRadius: [4, 4, 0, 0] },
         data: items.map((item) => ({
           value: item.value,
           itemStyle: { color: chartPalette.copper, borderRadius: [4, 4, 0, 0] },
@@ -516,8 +567,8 @@ function buildProtocolOption(items: ChartItem[]): EChartsCoreOption {
   };
 }
 
-function toChartData(counts: Record<string, number>, emptyLabel: string) {
-  const rows = Object.entries(counts).map(([name, value]) => ({ name, value }));
+function toChartData(counts: Record<string, number>, emptyLabel: string, translateName?: (name: string) => string) {
+  const rows = Object.entries(counts).map(([name, value]) => ({ name: translateName?.(name) ?? name, value }));
   return rows.length > 0 ? rows : [{ name: emptyLabel, value: 1 }];
 }
 
@@ -532,6 +583,26 @@ function translateDirection(direction: string) {
 
 function translateStatus(status: string) {
   return status === "Success" ? "成功" : "失败";
+}
+
+function translateErrorType(errorType: string) {
+  const map: Record<string, string> = {
+    Disconnected: "未连接",
+    CrcError: "校验错误",
+    ModbusException: "Modbus 异常",
+    Timeout: "超时",
+    Unknown: "未知异常",
+  };
+  return map[errorType] ?? errorType;
+}
+
+function translateAnalysisText(value: string) {
+  return value
+    .replaceAll("Disconnected", "未连接")
+    .replaceAll("CrcError", "校验错误")
+    .replaceAll("ModbusException", "Modbus 异常")
+    .replaceAll("Timeout", "超时")
+    .replaceAll("Unknown", "未知异常");
 }
 
 function translateAnalysisLevel(level: CommunicationLogAnalysis["level"]) {
