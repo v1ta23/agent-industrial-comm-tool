@@ -50,6 +50,7 @@ public partial class Form1 : Form
         InitializeComponent();
         BuildShell();
         ShowTcpPage();
+        AgentWorkbenchForm.WarmUpRuntime();
     }
 
     private void BuildShell()
@@ -230,10 +231,11 @@ public partial class Form1 : Form
         {
             Dock = DockStyle.Fill,
             ColumnCount = 1,
-            RowCount = 3,
+            RowCount = 4,
         };
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, S(58)));
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, S(312)));
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, S(58)));
         layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
 
         var section = new TableLayoutPanel
@@ -286,6 +288,10 @@ public partial class Form1 : Form
         }
         layout.Controls.Add(navStack, 0, 1);
 
+        var agentButton = CreateSidebarActionButton("✦  Agent 工作台");
+        agentButton.Click += (_, _) => ShowAgentWorkbench();
+        layout.Controls.Add(agentButton, 0, 2);
+
         var hint = new Label
         {
             Dock = DockStyle.Bottom,
@@ -294,10 +300,31 @@ public partial class Form1 : Form
             Height = S(80),
             TextAlign = ContentAlignment.BottomLeft,
         };
-        layout.Controls.Add(hint, 0, 2);
+        layout.Controls.Add(hint, 0, 3);
         sidebar.Controls.Add(layout);
 
         return sidebar;
+    }
+
+    private Button CreateSidebarActionButton(string text)
+    {
+        var button = new Button
+        {
+            Text = text,
+            TextAlign = ContentAlignment.MiddleLeft,
+            FlatStyle = FlatStyle.Flat,
+            BackColor = Primary,
+            ForeColor = Color.White,
+            Dock = DockStyle.Top,
+            Size = new Size(S(138), S(42)),
+            Margin = new Padding(0, S(4), 0, S(10)),
+            Padding = new Padding(S(14), 0, 0, 0),
+            Cursor = Cursors.Hand,
+            Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Bold),
+        };
+        button.FlatAppearance.BorderColor = Color.FromArgb(0, 44, 112);
+        button.FlatAppearance.BorderSize = 1;
+        return button;
     }
 
     private Button CreateNavButton(string key, string text)
@@ -1592,12 +1619,11 @@ public partial class Form1 : Form
         var toolbar = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
-            ColumnCount = 3,
+            ColumnCount = 2,
             RowCount = 1,
         };
         toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, S(86)));
-        toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, S(124)));
         toolbar.Controls.Add(new Label
         {
             Dock = DockStyle.Fill,
@@ -1609,10 +1635,6 @@ public partial class Form1 : Form
         refreshButton.Dock = DockStyle.Fill;
         refreshButton.Click += (_, _) => ShowAgentDashboardPage();
         toolbar.Controls.Add(refreshButton, 1, 0);
-        var workbenchButton = CreatePrimaryButton("Agent工作台");
-        workbenchButton.Dock = DockStyle.Fill;
-        workbenchButton.Click += (_, _) => ShowAgentWorkbench();
-        toolbar.Controls.Add(workbenchButton, 2, 0);
         layout.Controls.Add(toolbar, 0, 0);
 
         var metricGrid = new TableLayoutPanel
@@ -1667,7 +1689,6 @@ public partial class Form1 : Form
 
         _contentPanel.Controls.Add(root);
         _contentPanel.ResumeLayout(true);
-        AgentWorkbenchForm.WarmUpRuntime();
     }
 
     private Control CreateNativeChartCard(string titleText, Control chart)
@@ -1772,14 +1793,22 @@ public partial class Form1 : Form
             _agentWorkbenchForm.FormClosed += (_, _) => _agentWorkbenchForm = null;
         }
 
-        if (!_agentWorkbenchForm.Visible)
-        {
-            _agentWorkbenchForm.Show(this);
-        }
+        var shouldCenter = !_agentWorkbenchForm.Visible || _agentWorkbenchForm.WindowState == FormWindowState.Minimized;
 
         if (_agentWorkbenchForm.WindowState == FormWindowState.Minimized)
         {
             _agentWorkbenchForm.WindowState = FormWindowState.Normal;
+        }
+
+        if (!_agentWorkbenchForm.Visible)
+        {
+            _agentWorkbenchForm.CenterOverOwner(this);
+            _agentWorkbenchForm.Show(this);
+        }
+
+        if (shouldCenter)
+        {
+            _agentWorkbenchForm.CenterOverOwner(this);
         }
 
         _agentWorkbenchForm.BringToFront();

@@ -58,6 +58,17 @@ public sealed class AgentWorkbenchForm : Form
         _ = GetWebViewEnvironmentAsync().ContinueWith(task => _ = task.Exception, TaskContinuationOptions.OnlyOnFaulted);
     }
 
+    public void CenterOverOwner(Form owner)
+    {
+        var ownerBounds = owner.Bounds;
+        var workingArea = Screen.FromControl(owner).WorkingArea;
+        var x = ownerBounds.Left + (ownerBounds.Width - Width) / 2;
+        var y = ownerBounds.Top + (ownerBounds.Height - Height) / 2;
+        Location = new Point(
+            Clamp(x, workingArea.Left, workingArea.Right - Width),
+            Clamp(y, workingArea.Top, workingArea.Bottom - Height));
+    }
+
     protected override void OnVisibleChanged(EventArgs e)
     {
         base.OnVisibleChanged(e);
@@ -84,7 +95,8 @@ public sealed class AgentWorkbenchForm : Form
     {
         try
         {
-            ShowMessage("正在打开 Agent 工作台", "第一次打开需要初始化 WebView2，后面再次打开会直接复用。");
+            ShowMessage("正在打开 Agent 工作台", "第一次打开会自动启动后台服务，稍等一下就行。");
+            await AgentAppRuntime.EnsureRunningAsync(status => ShowMessage("正在打开 Agent 工作台", status));
             var environment = await GetWebViewEnvironmentAsync();
             await _webView.EnsureCoreWebView2Async(environment);
             _webView.CoreWebView2.Navigate(WorkbenchUrl);
@@ -108,12 +120,9 @@ public sealed class AgentWorkbenchForm : Form
 
         _isLoaded = false;
         ShowMessage(
-            "Agent 工作台没有启动",
-            $"{WorkbenchUrl} 暂时访问不到。\r\n\r\n请先打开两个 PowerShell 窗口并运行：\r\n\r\n" +
-            $"cd {GetAgentAppPath()}\r\n" +
-            "npm run dev:backend\r\n\r\n" +
-            $"cd {GetAgentAppPath()}\r\n" +
-            "npm run dev:frontend");
+            "Agent 工作台没有打开",
+            $"{WorkbenchUrl} 暂时访问不到。\r\n\r\n程序已经尝试自动启动服务。\r\n\r\n" +
+            $"如果还是不行，请看这里的日志：\r\n{AgentAppRuntime.GetAgentAppPath()}");
     }
 
     private static Panel BuildMessagePanel(Label title, Label body)
@@ -193,8 +202,9 @@ public sealed class AgentWorkbenchForm : Form
         }
     }
 
-    private static string GetAgentAppPath()
+    private static int Clamp(int value, int min, int max)
     {
-        return Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "agent-app"));
+        return max < min ? min : Math.Min(Math.Max(value, min), max);
     }
+
 }
