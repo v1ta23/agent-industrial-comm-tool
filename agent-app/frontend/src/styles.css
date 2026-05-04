@@ -343,8 +343,11 @@ a:focus-visible {
   box-shadow: var(--shadow-glow);
   display: grid;
   gap: 24px;
-  grid-template-columns: minmax(360px, 1fr) minmax(300px, 0.8fr) minmax(280px, 0.74fr);
-  min-height: 332px;
+  grid-template-areas:
+    "copy visual"
+    "control control";
+  grid-template-columns: minmax(390px, 0.95fr) minmax(420px, 1.05fr);
+  min-height: 0;
   overflow: hidden;
   padding: 22px;
   position: relative;
@@ -380,23 +383,27 @@ a:focus-visible {
 }
 
 .overview-copy {
+  align-content: start;
   display: grid;
-  min-height: 288px;
+  gap: 22px;
+  grid-area: copy;
+  grid-template-rows: auto auto auto 1fr;
+  min-height: 318px;
   min-width: 0;
-  padding-left: 2px;
+  padding: 22px 0 0 2px;
 }
 
 .overview-copy h1 {
   font-size: 40px;
   line-height: 1.12;
-  margin: 5px 0 0;
+  margin: 0;
 }
 
 .overview-copy p:last-of-type {
   color: var(--muted);
   font-size: 14px;
   line-height: 1.65;
-  margin: 10px 0 0;
+  margin: 0;
   max-width: 620px;
   overflow-wrap: anywhere;
   word-break: break-word;
@@ -409,7 +416,7 @@ a:focus-visible {
   flex-wrap: wrap;
   font-size: 13px;
   gap: 10px 14px;
-  margin-top: 24px;
+  margin-top: auto;
   min-width: 0;
 }
 
@@ -423,7 +430,9 @@ a:focus-visible {
   box-shadow: inset 0 1px 0 var(--panel-sheen);
   display: grid;
   gap: 18px;
+  grid-area: visual;
   grid-template-rows: auto minmax(0, 1fr);
+  min-height: 370px;
   min-width: 0;
   overflow: hidden;
   padding: 18px;
@@ -435,10 +444,13 @@ a:focus-visible {
   background: rgba(0, 61, 155, 0.1);
   content: "";
   height: 100%;
+  opacity: 0.55;
+  pointer-events: none;
   position: absolute;
   top: 0;
   transform: skewX(-22deg);
   width: 32px;
+  z-index: 0;
 }
 
 .signal-visual::before {
@@ -451,50 +463,68 @@ a:focus-visible {
   left: 68%;
 }
 
+.signal-visual > * {
+  position: relative;
+  z-index: 1;
+}
+
 .radar-core {
-  align-content: center;
+  align-items: center;
   aspect-ratio: 1;
   background:
-    conic-gradient(var(--success) 0 var(--success-rate), rgba(186, 26, 26, 0.2) var(--success-rate) 360deg),
-    radial-gradient(circle at center, #ffffff 0 34%, rgba(232, 240, 255, 0.86) 35% 58%, rgba(255, 255, 255, 0.4) 59%);
+    conic-gradient(from -90deg, var(--success) 0 var(--success-rate), rgba(186, 26, 26, 0.16) var(--success-rate) 360deg),
+    radial-gradient(circle at center, rgba(255, 255, 255, 0.94) 0 47%, rgba(232, 240, 255, 0.78) 48% 62%, rgba(255, 255, 255, 0.18) 63%);
   border: 1px solid rgba(0, 61, 155, 0.18);
   border-radius: 50%;
-  display: grid;
-  justify-items: center;
+  box-shadow:
+    inset 0 0 0 8px rgba(255, 255, 255, 0.42),
+    0 16px 34px rgba(24, 56, 96, 0.12);
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  justify-content: center;
   margin: 0 auto;
-  max-width: 172px;
-  min-width: 150px;
-  overflow: hidden;
+  max-width: 184px;
+  min-width: 158px;
+  overflow: visible;
   place-self: center;
   position: relative;
-  width: 72%;
+  width: 74%;
 }
 
 .radar-core::before {
-  background: rgba(255, 255, 255, 0.9);
+  background:
+    linear-gradient(180deg, #ffffff 0%, #f7fbff 100%);
   border: 1px solid rgba(255, 255, 255, 0.95);
   border-radius: 50%;
   box-shadow: 0 10px 24px rgba(24, 56, 96, 0.16);
   content: "";
-  height: 58%;
-  left: 21%;
+  inset: 20%;
   position: absolute;
-  top: 21%;
-  width: 58%;
   z-index: 1;
+}
+
+.radar-core::after {
+  border: 1px solid rgba(0, 61, 155, 0.16);
+  border-radius: 50%;
+  content: "";
+  inset: 8px;
+  pointer-events: none;
+  position: absolute;
+  z-index: 0;
 }
 
 .radar-core.warning {
   background:
-    conic-gradient(var(--success) 0 var(--success-rate), rgba(163, 90, 0, 0.26) var(--success-rate) 360deg),
-    radial-gradient(circle at center, #ffffff 0 34%, rgba(255, 240, 216, 0.86) 35% 58%, rgba(255, 255, 255, 0.4) 59%);
+    conic-gradient(from -90deg, var(--success) 0 var(--success-rate), rgba(163, 90, 0, 0.2) var(--success-rate) 360deg),
+    radial-gradient(circle at center, rgba(255, 255, 255, 0.94) 0 47%, rgba(255, 240, 216, 0.78) 48% 62%, rgba(255, 255, 255, 0.18) 63%);
   border-color: rgba(163, 90, 0, 0.26);
 }
 
 .radar-core.critical {
   background:
-    conic-gradient(var(--success) 0 var(--success-rate), rgba(186, 26, 26, 0.3) var(--success-rate) 360deg),
-    radial-gradient(circle at center, #ffffff 0 34%, rgba(253, 232, 229, 0.9) 35% 58%, rgba(255, 255, 255, 0.4) 59%);
+    conic-gradient(from -90deg, var(--success) 0 var(--success-rate), rgba(186, 26, 26, 0.24) var(--success-rate) 360deg),
+    radial-gradient(circle at center, rgba(255, 255, 255, 0.94) 0 47%, rgba(253, 232, 229, 0.82) 48% 62%, rgba(255, 255, 255, 0.18) 63%);
   border-color: rgba(186, 26, 26, 0.28);
 }
 
@@ -504,15 +534,16 @@ a:focus-visible {
     linear-gradient(90deg, transparent 49%, rgba(35, 64, 82, 0.2) 50%, transparent 51%),
     linear-gradient(0deg, transparent 49%, rgba(35, 64, 82, 0.18) 50%, transparent 51%);
   inset: 10px;
+  opacity: 0.32;
   position: absolute;
   z-index: 0;
 }
 
 .radar-sweep {
   animation: radar-spin 4s linear infinite;
-  background: conic-gradient(from 0deg, rgba(0, 61, 155, 0.28), transparent 26%);
+  background: conic-gradient(from -20deg, transparent 0 76%, rgba(0, 61, 155, 0.18) 88%, transparent 100%);
   inset: 12px;
-  opacity: 0.85;
+  opacity: 0.38;
   position: absolute;
   transform-origin: center;
   z-index: 0;
@@ -524,7 +555,7 @@ a:focus-visible {
   font-size: 38px;
   font-weight: 900;
   line-height: 1;
-  margin-top: 40px;
+  margin: 0;
   position: relative;
   text-shadow: 0 1px 0 #ffffff;
   z-index: 2;
@@ -534,8 +565,10 @@ a:focus-visible {
   color: #334052;
   font-size: 13px;
   font-weight: 800;
-  margin-top: 6px;
+  line-height: 1.2;
+  margin: 0;
   position: relative;
+  text-align: center;
   z-index: 2;
 }
 
@@ -593,8 +626,11 @@ a:focus-visible {
 }
 
 .overview-control {
+  align-items: stretch;
   display: grid;
   gap: 12px;
+  grid-area: control;
+  grid-template-columns: minmax(220px, 0.68fr) minmax(0, 1.32fr);
   min-width: 0;
 }
 
@@ -608,13 +644,14 @@ a:focus-visible {
 }
 
 .status-chip {
+  align-content: center;
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius);
   box-shadow: var(--shadow-1);
   display: grid;
   gap: 5px;
-  min-width: 220px;
+  min-width: 0;
   padding: 11px 14px;
 }
 
@@ -640,7 +677,7 @@ a:focus-visible {
 .metrics {
   display: grid;
   gap: 12px;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
 .metric,
@@ -1069,6 +1106,17 @@ tbody tr:hover {
     grid-template-columns: 1fr;
   }
 
+  .overview-board {
+    grid-template-areas:
+      "copy"
+      "visual"
+      "control";
+  }
+
+  .overview-control {
+    grid-template-columns: 1fr;
+  }
+
   .chart-side-stack {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -1192,6 +1240,7 @@ tbody tr:hover {
 
   .overview-copy {
     min-height: auto;
+    padding-top: 0;
   }
 
   .overview-copy h1 {
@@ -1199,6 +1248,7 @@ tbody tr:hover {
   }
 
   .signal-visual {
+    min-height: auto;
     padding: 16px;
   }
 

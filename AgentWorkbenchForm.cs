@@ -6,6 +6,11 @@ namespace industrial_comm_tool;
 public sealed class AgentWorkbenchForm : Form
 {
     private const string WorkbenchUrl = "http://127.0.0.1:5173";
+    private static readonly Size DefaultWorkbenchSize = new(1560, 960);
+    private static readonly Size MinimumWorkbenchSize = new(1080, 700);
+    private const int OwnerWidthExtra = 360;
+    private const int OwnerHeightExtra = 160;
+    private const int ScreenMargin = 32;
     private static readonly string WebViewUserDataFolder = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "industrial-comm-tool",
@@ -24,8 +29,8 @@ public sealed class AgentWorkbenchForm : Form
     {
         Text = "Agent 工作台";
         StartPosition = FormStartPosition.CenterParent;
-        Size = new Size(1360, 900);
-        MinimumSize = new Size(1080, 700);
+        Size = DefaultWorkbenchSize;
+        MinimumSize = MinimumWorkbenchSize;
 
         _webView = new WebView2
         {
@@ -58,10 +63,20 @@ public sealed class AgentWorkbenchForm : Form
         _ = GetWebViewEnvironmentAsync().ContinueWith(task => _ = task.Exception, TaskContinuationOptions.OnlyOnFaulted);
     }
 
+    public void EnsureLoadStarted()
+    {
+        if (!_isLoaded && !IsLoadRunning())
+        {
+            _loadTask = LoadWorkbenchAsync();
+        }
+    }
+
     public void CenterOverOwner(Form owner)
     {
         var ownerBounds = owner.Bounds;
         var workingArea = Screen.FromControl(owner).WorkingArea;
+        EnsurePreferredSize(ownerBounds, workingArea);
+
         var x = ownerBounds.Left + (ownerBounds.Width - Width) / 2;
         var y = ownerBounds.Top + (ownerBounds.Height - Height) / 2;
         Location = new Point(
@@ -73,9 +88,9 @@ public sealed class AgentWorkbenchForm : Form
     {
         base.OnVisibleChanged(e);
 
-        if (Visible && !_isLoaded && !IsLoadRunning())
+        if (Visible)
         {
-            _loadTask = LoadWorkbenchAsync();
+            EnsureLoadStarted();
         }
     }
 
@@ -93,19 +108,70 @@ public sealed class AgentWorkbenchForm : Form
 
     private async Task LoadWorkbenchAsync()
     {
+        _isLoaded = false;
+
+        if (!await EnsureWebViewRuntimeAsync())
+        {
+            return;
+        }
+
+        if (!await EnsureAgentAppAsync())
+        {
+            return;
+        }
+
         try
         {
-            ShowMessage("正在打开 Agent 工作台", "第一次打开会自动启动后台服务，稍等一下就行。");
-            await AgentAppRuntime.EnsureRunningAsync(status => ShowMessage("正在打开 Agent 工作台", status));
-            var environment = await GetWebViewEnvironmentAsync();
-            await _webView.EnsureCoreWebView2Async(environment);
+            ShowMessage("正在打开 Agent 工作台", $"WebView2、前端地址、后端 /api/health 都通过了。\r\n\r\n正在打开：\r\n{WorkbenchUrl}");
             _webView.CoreWebView2.Navigate(WorkbenchUrl);
         }
         catch (Exception ex)
         {
             ShowMessage(
-                "Agent 工作台启动失败",
-                $"无法启动 WebView2。\r\n\r\n请确认本机已安装 Microsoft Edge WebView2 Runtime。\r\n\r\n详细信息：{ex.Message}");
+                "前端页面打开失败",
+                $"WebView2 Runtime 已通过，服务检查也通过，但导航到前端页面时失败。\r\n\r\n前端地址：\r\n{WorkbenchUrl}\r\n\r\n先看日志：\r\n{GetFrontendLogHint()}\r\n\r\n详细信息：{ex.Message}");
+        }
+    }
+
+    private async Task<bool> EnsureWebViewRuntimeAsync()
+    {
+        try
+        {
+            ShowMessage("正在检查 WebView2 Runtime", "这是窗口里显示网页用的运行环境。先把它确认好，再检查前端和后端。");
+            var environment = await GetWebViewEnvironmentAsync();
+            await _webView.EnsureCoreWebView2Async(environment);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            ShowMessage(
+                "WebView2 Runtime 不可用",
+                $"这一步还没检查前端和后端，因为网页运行环境先没通过。\r\n\r\n请安装或修复 Microsoft Edge WebView2 Runtime，然后重新点 Agent 工作台。\r\n\r\n详细信息：{ex.Message}");
+            return false;
+        }
+    }
+
+    private async Task<bool> EnsureAgentAppAsync()
+    {
+        try
+        {
+            ShowMessage(
+                "正在检查 Agent 工作台服务",
+                $"接下来分开检查两个地址：\r\n\r\n前端地址：\r\n{WorkbenchUrl}\r\n\r\n后端 /api/health：\r\n{AgentAppRuntime.BackendHealthUrl}");
+            await AgentAppRuntime.EnsureRunningAsync(status => ShowMessage("正在检查 Agent 工作台服务", status));
+            return true;
+        }
+        catch (AgentAppStartupException ex)
+        {
+            ShowMessage(ex.Title, ex.UserMessage);
+            return false;
+        }
+        catch (Exception ex)
+        {
+            ShowMessage(
+                "Agent 服务诊断失败",
+                $"WebView2 Runtime 已通过，但检查前端或后端时出错。\r\n\r\n前端地址：\r\n{WorkbenchUrl}\r\n\r\n后端 /api/health：\r\n{AgentAppRuntime.BackendHealthUrl}\r\n\r\n详细信息：{ex.Message}");
+            return false;
         }
     }
 
@@ -120,9 +186,8 @@ public sealed class AgentWorkbenchForm : Form
 
         _isLoaded = false;
         ShowMessage(
-            "Agent 工作台没有打开",
-            $"{WorkbenchUrl} 暂时访问不到。\r\n\r\n程序已经尝试自动启动服务。\r\n\r\n" +
-            $"如果还是不行，请看这里的日志：\r\n{AgentAppRuntime.GetAgentAppPath()}");
+            "前端页面打开失败",
+            $"WebView2 Runtime 已通过，后端 /api/health 也通过了，但前端页面导航失败。\r\n\r\n前端地址：\r\n{WorkbenchUrl}\r\n\r\nWebView2 状态：{e.WebErrorStatus}\r\n\r\n可能是 5173 刚启动后又退出，或被其他程序占用。\r\n\r\n先看日志：\r\n{GetFrontendLogHint()}");
     }
 
     private static Panel BuildMessagePanel(Label title, Label body)
@@ -189,6 +254,15 @@ public sealed class AgentWorkbenchForm : Form
         return _loadTask is { IsCompleted: false };
     }
 
+    private static string GetFrontendLogHint()
+    {
+        var appPath = AgentAppRuntime.GetAgentAppPath();
+        return string.Join(
+            "\r\n",
+            Path.Combine(appPath, "frontend-workbench.out.log"),
+            Path.Combine(appPath, "frontend-workbench.err.log"));
+    }
+
     private static Task<CoreWebView2Environment> GetWebViewEnvironmentAsync()
     {
         lock (EnvironmentLock)
@@ -205,6 +279,41 @@ public sealed class AgentWorkbenchForm : Form
     private static int Clamp(int value, int min, int max)
     {
         return max < min ? min : Math.Min(Math.Max(value, min), max);
+    }
+
+    private void EnsurePreferredSize(Rectangle ownerBounds, Rectangle workingArea)
+    {
+        if (WindowState != FormWindowState.Normal)
+        {
+            return;
+        }
+
+        var preferredSize = GetPreferredWindowSize(ownerBounds, workingArea);
+        var maxSize = GetMaxWindowSize(workingArea);
+        var targetSize = new Size(
+            Width < preferredSize.Width ? preferredSize.Width : Math.Min(Width, maxSize.Width),
+            Height < preferredSize.Height ? preferredSize.Height : Math.Min(Height, maxSize.Height));
+
+        if (Size != targetSize)
+        {
+            Size = targetSize;
+        }
+    }
+
+    private static Size GetPreferredWindowSize(Rectangle ownerBounds, Rectangle workingArea)
+    {
+        var maxSize = GetMaxWindowSize(workingArea);
+        var preferredWidth = Math.Max(DefaultWorkbenchSize.Width, ownerBounds.Width + OwnerWidthExtra);
+        var preferredHeight = Math.Max(DefaultWorkbenchSize.Height, ownerBounds.Height + OwnerHeightExtra);
+
+        return new Size(Math.Min(preferredWidth, maxSize.Width), Math.Min(preferredHeight, maxSize.Height));
+    }
+
+    private static Size GetMaxWindowSize(Rectangle workingArea)
+    {
+        return new Size(
+            Math.Max(MinimumWorkbenchSize.Width, workingArea.Width - ScreenMargin * 2),
+            Math.Max(MinimumWorkbenchSize.Height, workingArea.Height - ScreenMargin * 2));
     }
 
 }

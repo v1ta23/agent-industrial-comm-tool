@@ -1813,6 +1813,7 @@ public partial class Form1 : Form
 
         _agentWorkbenchForm.BringToFront();
         _agentWorkbenchForm.Activate();
+        _agentWorkbenchForm.EnsureLoadStarted();
     }
 
     private Control BuildPageTitle(string titleText, string subtitleText, bool relaxedStatusLine = false)
