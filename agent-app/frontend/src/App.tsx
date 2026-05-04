@@ -35,11 +35,23 @@ type CommunicationLogAnalysis = {
   generatedAt: string;
 };
 
+type ModelAnalysis = {
+  status: "disabled" | "ok" | "error";
+  provider: string;
+  model: string;
+  summary: string;
+  suggestions: string[];
+  rawText: string;
+  generatedAt: string;
+  error?: string;
+};
+
 type WorkbenchResponse = {
   source: string;
   total: number;
   summary: CommunicationLogSummary;
   analysis: CommunicationLogAnalysis;
+  modelAnalysis?: ModelAnalysis;
   items: CommunicationLogEntry[];
 };
 
@@ -66,6 +78,16 @@ const emptyAnalysis: CommunicationLogAnalysis = {
   generatedAt: "",
 };
 
+const emptyModelAnalysis: ModelAnalysis = {
+  status: "disabled",
+  provider: "openai-compatible",
+  model: "",
+  summary: "大模型分析未启用",
+  suggestions: ["设置 LLM_API_KEY 和 LLM_MODEL 后，LangChain 才会调用外部大模型。"],
+  rawText: "",
+  generatedAt: "",
+};
+
 const navigationItems = [
   { href: "#overview", icon: "01", label: "运行概览" },
   { href: "#agent", icon: "02", label: "Agent 判断" },
@@ -89,6 +111,7 @@ export default function App() {
   const [logs, setLogs] = useState<CommunicationLogEntry[]>([]);
   const [summary, setSummary] = useState<CommunicationLogSummary>(emptySummary);
   const [analysis, setAnalysis] = useState<CommunicationLogAnalysis>(emptyAnalysis);
+  const [modelAnalysis, setModelAnalysis] = useState<ModelAnalysis>(emptyModelAnalysis);
   const [source, setSource] = useState("");
   const [status, setStatus] = useState("正在读取日志");
   const [lastRefresh, setLastRefresh] = useState("");
@@ -107,6 +130,7 @@ export default function App() {
       setLogs(data.items);
       setSummary(data.summary);
       setAnalysis(data.analysis);
+      setModelAnalysis(data.modelAnalysis ?? emptyModelAnalysis);
       setSource(data.source);
       setStatus(`已读取 ${data.total} 条日志`);
       setLastRefresh(new Date().toLocaleString());
@@ -140,12 +164,19 @@ export default function App() {
     () => toChartData(summary.protocolCounts, "暂无协议"),
     [summary.protocolCounts],
   );
-  const advice = analysis.suggestions.length > 0
+  const ruleAdvice = analysis.suggestions.length > 0
     ? analysis.suggestions.map(translateAnalysisText)
     : ["Agent 正在等待可分析的通信日志。"];
+  const modelAdvice = modelAnalysis.suggestions.length > 0
+    ? modelAnalysis.suggestions.map(translateAnalysisText)
+    : [modelAnalysis.summary || "大模型暂时没有返回建议。"];
+  const primaryAdvice = modelAnalysis.status === "ok" ? modelAdvice : ruleAdvice;
   const evidence = analysis.evidence.length > 0
     ? analysis.evidence.map(translateAnalysisText)
     : ["暂无分析依据。"];
+  const modelTitle = modelAnalysis.status === "ok"
+    ? `大模型建议 / ${modelAnalysis.model}`
+    : "大模型状态";
   const levelText = translateAnalysisLevel(analysis.level);
   const focusText = translateAnalysisText(analysis.focus);
   const summaryText = translateAnalysisText(analysis.summary);
@@ -275,7 +306,8 @@ export default function App() {
           </div>
 
           <div className="agent-lists">
-            <AnalysisList title="建议" items={advice} />
+            <AnalysisList title={modelTitle} items={modelAdvice} />
+            <AnalysisList title="规则建议" items={ruleAdvice} />
             <AnalysisList title="依据" items={evidence} />
           </div>
         </section>
@@ -350,7 +382,7 @@ export default function App() {
               </div>
             </div>
             <ol>
-              {advice.map((item) => (
+              {primaryAdvice.map((item) => (
                 <li key={item}>{item}</li>
               ))}
             </ol>

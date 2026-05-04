@@ -26,6 +26,12 @@ data/comm-logs.json
 data/connection-config.json
 data/exports/
 
+# Local secrets
+.env
+.env.local
+agent-app/**/.env
+agent-app/**/.env.local
+
 # Local workflow and planning docs
 AGENTS.md
 开发文档.md

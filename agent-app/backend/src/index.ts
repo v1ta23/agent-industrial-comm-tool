@@ -1,6 +1,7 @@
 import cors from "cors";
 import express from "express";
 import type { ErrorRequestHandler } from "express";
+import { analyzeLogsWithModel } from "./llm.js";
 import { analyzeLogs, getDefaultLogPath, loadCommunicationLogs, summarizeLogs } from "./logs.js";
 
 const app = express();
@@ -33,12 +34,14 @@ app.get("/api/logs", async (_request, response, next) => {
 app.get("/api/workbench", async (_request, response, next) => {
   try {
     const items = await loadCommunicationLogs();
+    const analysis = analyzeLogs(items);
 
     response.json({
       source: getDefaultLogPath(),
       total: items.length,
       summary: summarizeLogs(items),
-      analysis: analyzeLogs(items),
+      analysis,
+      modelAnalysis: await analyzeLogsWithModel(items, analysis),
       items,
     });
   } catch (error) {
@@ -49,11 +52,28 @@ app.get("/api/workbench", async (_request, response, next) => {
 app.get("/api/analysis", async (_request, response, next) => {
   try {
     const items = await loadCommunicationLogs();
+    const analysis = analyzeLogs(items);
 
     response.json({
       source: getDefaultLogPath(),
       total: items.length,
-      analysis: analyzeLogs(items),
+      analysis,
+      modelAnalysis: await analyzeLogsWithModel(items, analysis),
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/api/llm-analysis", async (_request, response, next) => {
+  try {
+    const items = await loadCommunicationLogs();
+    const analysis = analyzeLogs(items);
+
+    response.json({
+      source: getDefaultLogPath(),
+      total: items.length,
+      modelAnalysis: await analyzeLogsWithModel(items, analysis),
     });
   } catch (error) {
     next(error);
