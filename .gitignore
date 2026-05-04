@@ -21,6 +21,7 @@ _ReSharper.Caches/
 *.log
 *.tmp
 *.cache
+artifacts/
 data/comm-logs.json
 data/connection-config.json
 data/exports/
