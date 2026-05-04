@@ -296,7 +296,7 @@ public partial class Form1 : Form
         {
             Dock = DockStyle.Bottom,
             ForeColor = SidebarMuted,
-            Text = "当前只使用内置模拟设备。\r\n真实硬件接入放到后面做。",
+            Text = "",
             Height = S(80),
             TextAlign = ContentAlignment.BottomLeft,
         };
@@ -1747,14 +1747,19 @@ public partial class Form1 : Form
         layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         layout.Controls.Add(CreateSectionTitle("排查建议"), 0, 0);
 
-        var advice = new Label
+        var advice = new TextBox
         {
             Dock = DockStyle.Fill,
             Text = BuildNativeDashboardAdvice(entries),
             ForeColor = TextMain,
             Font = new Font(Font.FontFamily, 9.5F, FontStyle.Regular),
-            TextAlign = ContentAlignment.TopLeft,
-            Padding = new Padding(0, S(8), 0, 0),
+            BackColor = Surface,
+            BorderStyle = BorderStyle.None,
+            Multiline = true,
+            ReadOnly = true,
+            ScrollBars = ScrollBars.Vertical,
+            Margin = new Padding(0, S(8), 0, 0),
+            TabStop = false,
         };
         layout.Controls.Add(advice, 0, 1);
         panel.Controls.Add(layout);
@@ -1763,27 +1768,146 @@ public partial class Form1 : Form
 
     private static string BuildNativeDashboardAdvice(IReadOnlyList<CommunicationLogEntry> entries)
     {
-        if (entries.Count == 0)
+        var triage = new[]
         {
-            return "还没有通信日志。\r\n\r\n先回到 TCP 调试页，连接模拟设备并发送一次指令。";
-        }
+            BuildNativeProtocolTriage(entries, "TCP", "TCP"),
+            BuildNativeProtocolTriage(entries, "Serial", "串口"),
+            BuildNativeProtocolTriage(entries, "ModbusTCP", "ModbusTCP"),
+        };
+        var triageText = string.Join("\r\n\r\n", triage.Select(FormatNativeProtocolTriage));
 
-        var failedEntries = entries.Where(entry => entry.Status != "Success").ToList();
-        if (failedEntries.Count == 0)
-        {
-            return "当前没有失败记录。\r\n\r\n可以继续观察响应耗时，或者下一步接串口 / Modbus 数据。";
-        }
-
-        var latestFailed = failedEntries.Last();
-        var topError = failedEntries
-            .Where(entry => !string.IsNullOrWhiteSpace(entry.ErrorType))
-            .GroupBy(entry => entry.ErrorType)
-            .OrderByDescending(group => group.Count())
-            .FirstOrDefault();
-
-        var errorText = topError is null ? "未知异常" : topError.Key;
-        return $"当前有 {failedEntries.Count} 条失败记录。\r\n\r\n最新失败：{latestFailed.Content}\r\n\r\n主要问题：{errorText}\r\n\r\n先检查连接状态、IP、端口和设备是否在线。";
+        return entries.Count == 0
+            ? $"还没有通信日志。\r\n\r\n{triageText}"
+            : triageText;
     }
+
+    private static NativeProtocolTriage BuildNativeProtocolTriage(
+        IReadOnlyList<CommunicationLogEntry> entries,
+        string protocol,
+        string displayName)
+    {
+        var protocolEntries = entries
+            .Where(entry => GetNativeProtocolGroup(entry.Protocol) == protocol)
+            .ToList();
+        var failedEntries = protocolEntries
+            .Where(entry => entry.Status != "Success")
+            .ToList();
+        var durationEntries = protocolEntries
+            .Where(entry => entry.DurationMs > 0)
+            .ToList();
+        var latestFailed = failedEntries.LastOrDefault();
+        var mainErrorType = failedEntries
+            .Select(entry => string.IsNullOrWhiteSpace(entry.ErrorType) ? "Unknown" : entry.ErrorType)
+            .GroupBy(errorType => errorType)
+            .OrderByDescending(group => group.Count())
+            .Select(group => group.Key)
+            .FirstOrDefault() ?? "None";
+        var averageDurationMs = durationEntries.Count == 0
+            ? 0
+            : (int)Math.Round(durationEntries.Average(entry => entry.DurationMs));
+
+        return new NativeProtocolTriage(
+            displayName,
+            protocolEntries.Count,
+            failedEntries.Count,
+            latestFailed is null ? "无" : $"{latestFailed.Time}，{latestFailed.Content}",
+            mainErrorType,
+            averageDurationMs,
+            BuildNativeProtocolSuggestion(protocol, protocolEntries.Count, failedEntries.Count, mainErrorType, averageDurationMs));
+    }
+
+    private static string FormatNativeProtocolTriage(NativeProtocolTriage triage)
+    {
+        var errorText = triage.MainErrorType == "None" ? "无" : TranslateNativeErrorType(triage.MainErrorType);
+        var averageText = triage.AverageDurationMs == 0 ? "-- ms" : $"{triage.AverageDurationMs} ms";
+
+        return $"{triage.DisplayName}：{triage.Total} 条，失败 {triage.Failed} 条\r\n最近失败：{triage.LatestFailedText}\r\n主错误：{errorText}；平均耗时：{averageText}\r\n下一步：{triage.Suggestion}";
+    }
+
+    private static string GetNativeProtocolGroup(string protocol)
+    {
+        var normalized = protocol.Trim().ToLowerInvariant().Replace(" ", "");
+
+        return normalized switch
+        {
+            "tcp" or "tcpsim" or "tcp-sim" => "TCP",
+            "serial" or "串口" => "Serial",
+            "modbustcp" or "modbus-tcp" => "ModbusTCP",
+            _ => string.IsNullOrWhiteSpace(protocol) ? "Unknown" : protocol,
+        };
+    }
+
+    private static string BuildNativeProtocolSuggestion(string protocol, int totalCount, int failedCount, string mainErrorType, int averageDurationMs)
+    {
+        if (totalCount == 0)
+        {
+            return protocol switch
+            {
+                "TCP" => "还没有 TCP 日志，先到 TCP 调试页发送一次指令。",
+                "Serial" => "还没有串口日志，先到串口页打开模拟串口并发送一次。",
+                _ => "还没有 ModbusTCP 日志，先到 Modbus TCP 页读或写一次寄存器。",
+            };
+        }
+
+        if (failedCount == 0)
+        {
+            return averageDurationMs > 100
+                ? "暂时没有失败，但平均耗时偏高，先对照时间点看设备负载和网络状态。"
+                : "暂时没有失败，继续保留日志观察。";
+        }
+
+        if (protocol == "TCP")
+        {
+            return mainErrorType switch
+            {
+                "Disconnected" => "先查连接是否断开，再查 IP、端口和模拟设备是否在线。",
+                "Timeout" => "先查设备有没有返回，再查网络延迟和超时时间设置。",
+                _ => "先按最新失败内容复现一次，再看连接状态和返回内容。",
+            };
+        }
+
+        if (protocol == "Serial")
+        {
+            return mainErrorType switch
+            {
+                "CrcError" => "先查波特率、校验位、停止位和协议格式是否一致。",
+                "PortClosed" => "先打开串口，再确认 COM 口号和 USB 转串口驱动。",
+                _ => "先确认串口已打开，再查线缆、参数和设备是否返回。",
+            };
+        }
+
+        return mainErrorType switch
+        {
+            "ModbusException" => "先查功能码、寄存器地址、数量和 UnitId 是否符合设备表。",
+            "InvalidAddress" or "InvalidValue" => "先把寄存器地址、数量和值改成合法数字。",
+            _ => "先查 Modbus TCP 连接、UnitId、寄存器地址和设备异常码。",
+        };
+    }
+
+    private static string TranslateNativeErrorType(string errorType)
+    {
+        return errorType switch
+        {
+            "Disconnected" => "未连接",
+            "Timeout" => "超时",
+            "CrcError" => "校验错误",
+            "ModbusException" => "Modbus 异常",
+            "PortClosed" => "串口未打开",
+            "InvalidAddress" => "地址无效",
+            "InvalidValue" => "数值无效",
+            "Unknown" => "未知异常",
+            _ => errorType,
+        };
+    }
+
+    private sealed record NativeProtocolTriage(
+        string DisplayName,
+        int Total,
+        int Failed,
+        string LatestFailedText,
+        string MainErrorType,
+        int AverageDurationMs,
+        string Suggestion);
 
     private void ShowAgentWorkbench()
     {
