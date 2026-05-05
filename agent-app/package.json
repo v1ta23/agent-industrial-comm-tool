@@ -8,7 +8,7 @@
   ],
   "scripts": {
     "dev:backend": "npm run dev --workspace backend",
-    "dev:frontend": "npm run dev --workspace frontend",
+    "dev:workbench": "npm run build --workspace frontend && npm run dev --workspace backend",
     "build": "npm run build --workspace backend && npm run build --workspace frontend",
     "check": "npm run check --workspace backend && npm run check --workspace frontend"
   }

@@ -6,7 +6,7 @@ namespace industrial_comm_tool;
 internal static class AgentAppRuntime
 {
     internal const string BackendHealthUrl = "http://127.0.0.1:4317/api/health";
-    internal const string FrontendUrl = "http://127.0.0.1:5173";
+    internal const string WorkbenchUrl = "http://127.0.0.1:4317/workbench";
     private static readonly HttpClient HttpClient = new()
     {
         Timeout = TimeSpan.FromSeconds(2),
@@ -16,8 +16,7 @@ internal static class AgentAppRuntime
     public static async Task EnsureRunningAsync(Action<string>? reportStatus = null, CancellationToken cancellationToken = default)
     {
         var appPath = GetAgentAppPath();
-        var backendStartRequested = false;
-        var frontendStartRequested = false;
+        var serviceStartRequested = false;
 
         await StartLock.WaitAsync(cancellationToken);
         try
@@ -27,20 +26,17 @@ internal static class AgentAppRuntime
                 throw AgentAppStartupException.MissingAgentApp(appPath);
             }
 
-            reportStatus?.Invoke($"正在检查前端地址：\r\n{FrontendUrl}");
-            if (!await CanGetAsync(FrontendUrl, cancellationToken))
-            {
-                reportStatus?.Invoke("前端地址没通，正在后台启动 5173。");
-                StartWorkbenchService(appPath, "前端", "dev:frontend", "frontend-workbench");
-                frontendStartRequested = true;
-            }
+            reportStatus?.Invoke($"正在检查 Agent 工作台地址：\r\n{WorkbenchUrl}");
+            var workbenchReady = await CanGetAsync(WorkbenchUrl, cancellationToken);
 
-            reportStatus?.Invoke($"正在检查后端 /api/health：\r\n{BackendHealthUrl}");
-            if (!await CanGetAsync(BackendHealthUrl, cancellationToken))
+            reportStatus?.Invoke($"正在检查 Agent 后端：\r\n{BackendHealthUrl}");
+            var backendReady = await CanGetAsync(BackendHealthUrl, cancellationToken);
+
+            if (!workbenchReady && !backendReady)
             {
-                reportStatus?.Invoke("后端 /api/health 没通，正在后台启动 4317。");
-                StartWorkbenchService(appPath, "后端", "dev:backend", "backend-workbench");
-                backendStartRequested = true;
+                reportStatus?.Invoke("Agent 工作台没通，正在后台启动 4317。");
+                StartWorkbenchService(appPath, "Agent 工作台", "dev:workbench", "backend-workbench");
+                serviceStartRequested = true;
             }
         }
         finally
@@ -48,61 +44,59 @@ internal static class AgentAppRuntime
             StartLock.Release();
         }
 
-        reportStatus?.Invoke("正在等前端页面和后端接口准备好。");
-        await WaitUntilReadyAsync(appPath, frontendStartRequested, backendStartRequested, reportStatus, cancellationToken);
+        reportStatus?.Invoke("正在等 Agent 工作台准备好。");
+        await WaitUntilReadyAsync(appPath, serviceStartRequested, reportStatus, cancellationToken);
     }
 
     private static async Task WaitUntilReadyAsync(
         string appPath,
-        bool frontendStartRequested,
-        bool backendStartRequested,
+        bool serviceStartRequested,
         Action<string>? reportStatus,
         CancellationToken cancellationToken)
     {
         var timeoutAt = DateTimeOffset.UtcNow.AddSeconds(75);
-        var frontendReady = false;
+        var workbenchReady = false;
         var backendReady = false;
 
         while (DateTimeOffset.UtcNow < timeoutAt)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            frontendReady = await CanGetAsync(FrontendUrl, cancellationToken);
+            workbenchReady = await CanGetAsync(WorkbenchUrl, cancellationToken);
             backendReady = await CanGetAsync(BackendHealthUrl, cancellationToken);
 
-            if (frontendReady && backendReady)
+            if (workbenchReady && backendReady)
             {
                 return;
             }
 
-            reportStatus?.Invoke(BuildWaitingStatus(frontendReady, backendReady));
+            reportStatus?.Invoke(BuildWaitingStatus(workbenchReady, backendReady));
             await Task.Delay(1000, cancellationToken);
         }
 
-        frontendReady = await CanGetAsync(FrontendUrl, cancellationToken);
+        workbenchReady = await CanGetAsync(WorkbenchUrl, cancellationToken);
         backendReady = await CanGetAsync(BackendHealthUrl, cancellationToken);
 
         throw AgentAppStartupException.ServiceNotReady(
-            frontendReady,
+            workbenchReady,
             backendReady,
-            frontendStartRequested,
-            backendStartRequested,
+            serviceStartRequested,
             appPath);
     }
 
-    private static string BuildWaitingStatus(bool frontendReady, bool backendReady)
+    private static string BuildWaitingStatus(bool workbenchReady, bool backendReady)
     {
-        if (!frontendReady && !backendReady)
+        if (!workbenchReady && !backendReady)
         {
-            return "前端地址和后端 /api/health 还没通，继续等。";
+            return "Agent 页面和 /api/health 还没通，继续等 4317。";
         }
 
-        if (!frontendReady)
+        if (!workbenchReady)
         {
-            return "后端 /api/health 已通，前端地址还没通。";
+            return "4317 后端已通，/workbench 页面还没出来。";
         }
 
-        return "前端地址已通，后端 /api/health 还没通。";
+        return "/workbench 页面已通，/api/health 还没通。";
     }
 
     private static async Task<bool> CanGetAsync(string url, CancellationToken cancellationToken)
@@ -203,43 +197,34 @@ internal sealed class AgentAppStartupException : Exception
     }
 
     public static AgentAppStartupException ServiceNotReady(
-        bool frontendReady,
+        bool workbenchReady,
         bool backendReady,
-        bool frontendStartRequested,
-        bool backendStartRequested,
+        bool serviceStartRequested,
         string appPath)
     {
-        if (!frontendReady && !backendReady)
+        if (!workbenchReady && !backendReady)
         {
-            var startText = frontendStartRequested || backendStartRequested
-                ? "程序已经尝试自动启动前端和后端，但 75 秒内没等到。"
-                : "程序检测到前端和后端都还没准备好。";
+            var startText = serviceStartRequested
+                ? "程序已经尝试自动启动 Agent 工作台，但 75 秒内没等到。"
+                : "程序检测到 Agent 工作台还没准备好。";
 
             return new AgentAppStartupException(
                 "Agent 工作台服务没准备好",
-                $"{startText}\r\n\r\n前端地址：\r\n{AgentAppRuntime.FrontendUrl}\r\n\r\n后端检查：\r\n{AgentAppRuntime.BackendHealthUrl}\r\n\r\n先看日志：\r\n{FormatLogHint(appPath, "frontend-workbench", "backend-workbench")}\r\n\r\n常见原因：npm 依赖没装、5173/4317 端口被占用，或启动脚本报错。",
-                "Both frontend and backend endpoints are unavailable.");
+                $"{startText}\r\n\r\n工作台地址：\r\n{AgentAppRuntime.WorkbenchUrl}\r\n\r\n后端检查：\r\n{AgentAppRuntime.BackendHealthUrl}\r\n\r\n先看日志：\r\n{FormatLogHint(appPath, "backend-workbench")}\r\n\r\n常见原因：npm 依赖没装、4317 端口被占用，或前端构建/后端启动脚本报错。",
+                "Workbench endpoints are unavailable.");
         }
 
-        if (!frontendReady)
+        if (!workbenchReady)
         {
-            var startText = frontendStartRequested
-                ? "程序已经尝试自动启动前端，但 75 秒内没打开。"
-                : "程序检测到前端地址还没准备好。";
-
             return new AgentAppStartupException(
-                "前端页面没打开",
-                $"{startText}\r\n\r\n后端 /api/health 已经通过，问题卡在前端地址：\r\n{AgentAppRuntime.FrontendUrl}\r\n\r\n先看日志：\r\n{FormatLogHint(appPath, "frontend-workbench")}\r\n\r\n常见原因：5173 端口被占用、前端构建失败，或 Vite preview 没起来。",
-                "Frontend endpoint is unavailable.");
+                "Agent 页面没打开",
+                $"4317 后端 /api/health 已经通过，但 /workbench 页面没出来。\r\n\r\n工作台地址：\r\n{AgentAppRuntime.WorkbenchUrl}\r\n\r\n先看日志：\r\n{FormatLogHint(appPath, "backend-workbench")}\r\n\r\n常见原因：前端 dist 没构建、旧的 4317 后端进程还没重启，或静态文件托管报错。",
+                "Workbench page is unavailable.");
         }
-
-        var backendStartText = backendStartRequested
-            ? "程序已经尝试自动启动后端，但 75 秒内 /api/health 还是没通过。"
-            : "程序检测到后端 /api/health 还没准备好。";
 
         return new AgentAppStartupException(
             "后端接口没准备好",
-            $"{backendStartText}\r\n\r\n前端地址已经能访问，问题卡在后端检查：\r\n{AgentAppRuntime.BackendHealthUrl}\r\n\r\n前端页面可能能打开，但图表数据会空或报错。\r\n\r\n先看日志：\r\n{FormatLogHint(appPath, "backend-workbench")}\r\n\r\n常见原因：4317 端口被占用、后端启动失败，或日志文件读取报错。",
+            $"/workbench 页面已经能访问，但 /api/health 没通过。\r\n\r\n后端检查：\r\n{AgentAppRuntime.BackendHealthUrl}\r\n\r\n页面可能能打开，但图表数据会空或报错。\r\n\r\n先看日志：\r\n{FormatLogHint(appPath, "backend-workbench")}\r\n\r\n常见原因：4317 端口被其他服务占用、后端路由启动失败，或旧进程没重启。",
             "Backend health endpoint is unavailable.");
     }
 

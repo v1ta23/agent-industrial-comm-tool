@@ -179,6 +179,65 @@ a:focus-visible {
   box-shadow: 0 0 0 6px rgba(186, 26, 26, 0.12);
 }
 
+.topbar-actions {
+  align-items: center;
+  display: inline-flex;
+  gap: 10px;
+}
+
+.auto-listen-toggle {
+  align-items: center;
+  color: var(--muted);
+  cursor: pointer;
+  display: inline-flex;
+  font-size: 13px;
+  font-weight: 700;
+  gap: 8px;
+  min-height: 38px;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.auto-listen-toggle input {
+  height: 1px;
+  opacity: 0;
+  position: absolute;
+  width: 1px;
+}
+
+.toggle-track {
+  background: #d7deea;
+  border: 1px solid #c1cad8;
+  border-radius: 999px;
+  display: inline-flex;
+  height: 22px;
+  padding: 2px;
+  transition: background 150ms ease, border-color 150ms ease;
+  width: 40px;
+}
+
+.toggle-thumb {
+  background: #ffffff;
+  border-radius: 999px;
+  box-shadow: 0 1px 4px rgba(31, 38, 51, 0.22);
+  height: 16px;
+  transition: transform 150ms ease;
+  width: 16px;
+}
+
+.auto-listen-toggle.active {
+  color: var(--primary);
+}
+
+.auto-listen-toggle.active .toggle-track {
+  background: var(--primary);
+  border-color: var(--primary);
+}
+
+.auto-listen-toggle.active .toggle-thumb {
+  transform: translateX(18px);
+}
+
 .primary-action {
   align-items: center;
   background: var(--primary);
@@ -217,6 +276,10 @@ a:focus-visible {
 }
 
 .rail-action {
+  display: none;
+}
+
+.rail-controls {
   display: none;
 }
 
@@ -1196,8 +1259,17 @@ tbody tr:hover {
     display: none;
   }
 
-  .primary-action {
+  .topbar-actions {
     display: none;
+  }
+
+  .rail-controls {
+    display: grid;
+    gap: 10px;
+  }
+
+  .rail-controls .auto-listen-toggle {
+    justify-content: center;
   }
 
   .rail-action {
@@ -1223,6 +1295,7 @@ tbody tr:hover {
   }
 
   .node-card,
+  .rail-controls,
   .rail-action,
   .source-path,
   .overview-board,

@@ -5,7 +5,7 @@ namespace industrial_comm_tool;
 
 public sealed class AgentWorkbenchForm : Form
 {
-    private const string WorkbenchUrl = "http://127.0.0.1:5173";
+    private const string WorkbenchUrl = AgentAppRuntime.WorkbenchUrl;
     private static readonly Size DefaultWorkbenchSize = new(1560, 960);
     private static readonly Size MinimumWorkbenchSize = new(1080, 700);
     private const int OwnerWidthExtra = 360;
@@ -122,14 +122,14 @@ public sealed class AgentWorkbenchForm : Form
 
         try
         {
-            ShowMessage("正在打开 Agent 工作台", $"WebView2、前端地址、后端 /api/health 都通过了。\r\n\r\n正在打开：\r\n{WorkbenchUrl}");
+            ShowMessage("正在打开 Agent 工作台", $"WebView2、Agent 工作台地址和 /api/health 都通过了。\r\n\r\n正在打开：\r\n{WorkbenchUrl}");
             _webView.CoreWebView2.Navigate(WorkbenchUrl);
         }
         catch (Exception ex)
         {
             ShowMessage(
-                "前端页面打开失败",
-                $"WebView2 Runtime 已通过，服务检查也通过，但导航到前端页面时失败。\r\n\r\n前端地址：\r\n{WorkbenchUrl}\r\n\r\n先看日志：\r\n{GetFrontendLogHint()}\r\n\r\n详细信息：{ex.Message}");
+                "Agent 页面打开失败",
+                $"WebView2 Runtime 已通过，服务检查也通过，但导航到工作台页面时失败。\r\n\r\n工作台地址：\r\n{WorkbenchUrl}\r\n\r\n先看日志：\r\n{GetWorkbenchLogHint()}\r\n\r\n详细信息：{ex.Message}");
         }
     }
 
@@ -137,7 +137,7 @@ public sealed class AgentWorkbenchForm : Form
     {
         try
         {
-            ShowMessage("正在检查 WebView2 Runtime", "这是窗口里显示网页用的运行环境。先把它确认好，再检查前端和后端。");
+            ShowMessage("正在检查 WebView2 Runtime", "这是窗口里显示网页用的运行环境。先把它确认好，再检查 4317 上的 Agent 工作台。");
             var environment = await GetWebViewEnvironmentAsync();
             await _webView.EnsureCoreWebView2Async(environment);
             return true;
@@ -157,7 +157,7 @@ public sealed class AgentWorkbenchForm : Form
         {
             ShowMessage(
                 "正在检查 Agent 工作台服务",
-                $"接下来分开检查两个地址：\r\n\r\n前端地址：\r\n{WorkbenchUrl}\r\n\r\n后端 /api/health：\r\n{AgentAppRuntime.BackendHealthUrl}");
+                $"接下来只检查 4317 这一套：\r\n\r\n工作台地址：\r\n{WorkbenchUrl}\r\n\r\n后端 /api/health：\r\n{AgentAppRuntime.BackendHealthUrl}");
             await AgentAppRuntime.EnsureRunningAsync(status => ShowMessage("正在检查 Agent 工作台服务", status));
             return true;
         }
@@ -170,7 +170,7 @@ public sealed class AgentWorkbenchForm : Form
         {
             ShowMessage(
                 "Agent 服务诊断失败",
-                $"WebView2 Runtime 已通过，但检查前端或后端时出错。\r\n\r\n前端地址：\r\n{WorkbenchUrl}\r\n\r\n后端 /api/health：\r\n{AgentAppRuntime.BackendHealthUrl}\r\n\r\n详细信息：{ex.Message}");
+                $"WebView2 Runtime 已通过，但检查 Agent 工作台时出错。\r\n\r\n工作台地址：\r\n{WorkbenchUrl}\r\n\r\n后端 /api/health：\r\n{AgentAppRuntime.BackendHealthUrl}\r\n\r\n详细信息：{ex.Message}");
             return false;
         }
     }
@@ -186,8 +186,8 @@ public sealed class AgentWorkbenchForm : Form
 
         _isLoaded = false;
         ShowMessage(
-            "前端页面打开失败",
-            $"WebView2 Runtime 已通过，后端 /api/health 也通过了，但前端页面导航失败。\r\n\r\n前端地址：\r\n{WorkbenchUrl}\r\n\r\nWebView2 状态：{e.WebErrorStatus}\r\n\r\n可能是 5173 刚启动后又退出，或被其他程序占用。\r\n\r\n先看日志：\r\n{GetFrontendLogHint()}");
+            "Agent 页面打开失败",
+            $"WebView2 Runtime 已通过，4317 检查也通过了，但工作台页面导航失败。\r\n\r\n工作台地址：\r\n{WorkbenchUrl}\r\n\r\nWebView2 状态：{e.WebErrorStatus}\r\n\r\n可能是 4317 刚启动后又退出，或 /workbench 静态页面没发出来。\r\n\r\n先看日志：\r\n{GetWorkbenchLogHint()}");
     }
 
     private static Panel BuildMessagePanel(Label title, Label body)
@@ -254,13 +254,13 @@ public sealed class AgentWorkbenchForm : Form
         return _loadTask is { IsCompleted: false };
     }
 
-    private static string GetFrontendLogHint()
+    private static string GetWorkbenchLogHint()
     {
         var appPath = AgentAppRuntime.GetAgentAppPath();
         return string.Join(
             "\r\n",
-            Path.Combine(appPath, "frontend-workbench.out.log"),
-            Path.Combine(appPath, "frontend-workbench.err.log"));
+            Path.Combine(appPath, "backend-workbench.out.log"),
+            Path.Combine(appPath, "backend-workbench.err.log"));
     }
 
     private static Task<CoreWebView2Environment> GetWebViewEnvironmentAsync()

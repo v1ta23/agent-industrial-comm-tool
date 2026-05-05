@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { BarChart, LineChart, PieChart } from "echarts/charts";
 import { GridComponent, LegendComponent, TooltipComponent } from "echarts/components";
 import { init, use, type EChartsCoreOption } from "echarts/core";
@@ -52,6 +52,7 @@ type WorkbenchResponse = {
   summary: CommunicationLogSummary;
   analysis: CommunicationLogAnalysis;
   modelAnalysis?: ModelAnalysis;
+  logState?: LogState;
   items: CommunicationLogEntry[];
 };
 
@@ -59,6 +60,19 @@ type ChartItem = {
   name: string;
   value: number;
 };
+
+type LogState = {
+  source: string;
+  exists: boolean;
+  size: number;
+  fingerprint: string;
+  checkedAt: string;
+};
+
+type RefreshReason = "initial" | "auto" | "manual";
+
+const AUTO_LISTEN_INTERVAL_MS = 15000;
+const AUTO_LISTEN_SECONDS = AUTO_LISTEN_INTERVAL_MS / 1000;
 
 const emptySummary: CommunicationLogSummary = {
   total: 0,
@@ -115,33 +129,140 @@ export default function App() {
   const [source, setSource] = useState("");
   const [status, setStatus] = useState("正在读取日志");
   const [lastRefresh, setLastRefresh] = useState("");
+  const [refreshHint, setRefreshHint] = useState("不自动刷新，避免重复消耗 token");
+  const [activeRefreshReason, setActiveRefreshReason] = useState<RefreshReason | null>(null);
+  const [autoListenEnabled, setAutoListenEnabled] = useState(false);
+  const [hasModelAnalysisRun, setHasModelAnalysisRun] = useState(false);
+  const [modelAnalysisFailed, setModelAnalysisFailed] = useState(false);
+  const isRefreshingRef = useRef(false);
+  const lastTotalRef = useRef<number | null>(null);
+  const lastLogIdRef = useRef<string | null>(null);
+  const lastLogFingerprintRef = useRef<string | null>(null);
+  const isRefreshing = activeRefreshReason !== null;
 
-  async function refreshLogs() {
-    setStatus("正在读取日志");
+  const refreshLogs = useCallback(async (reason: RefreshReason = "manual") => {
+    if (isRefreshingRef.current) {
+      if (reason === "manual") {
+        setRefreshHint("正在刷新，等这次返回");
+      }
+
+      return;
+    }
+
+    isRefreshingRef.current = true;
+    setActiveRefreshReason(reason);
+    setStatus(reason === "manual" ? "正在重新分析" : reason === "auto" ? "正在监听日志" : "正在读取日志");
 
     try {
-      const response = await fetch(`${getApiBaseUrl()}/api/workbench`);
+      const modelQuery = reason === "manual" ? "?model=1" : "";
+      const response = await fetch(`${getApiBaseUrl()}/api/workbench${modelQuery}`, { cache: "no-store" });
 
       if (!response.ok) {
         throw new Error(`工作台接口 HTTP ${response.status}`);
       }
 
       const data = await response.json() as WorkbenchResponse;
+      const previousTotal = lastTotalRef.current;
+      const previousLogId = lastLogIdRef.current;
+      const latestLogId = data.items.at(-1)?.id ?? null;
+      const refreshState = buildRefreshState(data.total, previousTotal, latestLogId, previousLogId);
+      const logFingerprint = data.logState?.fingerprint ?? buildLogSnapshotFingerprint(data.total, latestLogId);
+
       setLogs(data.items);
       setSummary(data.summary);
       setAnalysis(data.analysis);
       setModelAnalysis(data.modelAnalysis ?? emptyModelAnalysis);
       setSource(data.source);
-      setStatus(`已读取 ${data.total} 条日志`);
+      setStatus(refreshState.status);
+      setRefreshHint(reason === "manual" ? "本次已手动调用大模型" : reason === "auto" ? buildAutoListenHint() : refreshState.hint);
       setLastRefresh(new Date().toLocaleString());
+      lastTotalRef.current = data.total;
+      lastLogIdRef.current = latestLogId;
+      lastLogFingerprintRef.current = logFingerprint;
+
+      if (reason === "manual") {
+        setHasModelAnalysisRun(true);
+        setModelAnalysisFailed(false);
+      }
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "读取失败");
+      setRefreshHint(reason === "manual" ? "手动重新分析失败" : reason === "auto" ? "自动监听读取失败，下次继续只读本地日志" : "读取失败，没有自动重试");
+
+      if (reason === "manual") {
+        setModelAnalysisFailed(true);
+      }
+    } finally {
+      isRefreshingRef.current = false;
+      setActiveRefreshReason(null);
     }
-  }
+  }, []);
+
+  const checkLogState = useCallback(async () => {
+    if (isRefreshingRef.current) {
+      return;
+    }
+
+    try {
+      const response = await fetch(`${getApiBaseUrl()}/api/log-state`, { cache: "no-store" });
+
+      if (!response.ok) {
+        throw new Error(`日志状态接口 HTTP ${response.status}`);
+      }
+
+      const data = await response.json() as LogState;
+      const previousFingerprint = lastLogFingerprintRef.current;
+
+      if (previousFingerprint === null) {
+        lastLogFingerprintRef.current = data.fingerprint;
+        setRefreshHint(buildAutoListenHint("等待日志变化"));
+        return;
+      }
+
+      if (data.fingerprint !== previousFingerprint) {
+        setRefreshHint("发现日志变化，正在刷新本地看板");
+        await refreshLogs("auto");
+        return;
+      }
+
+      setRefreshHint(buildAutoListenHint("未发现新日志"));
+    } catch (error) {
+      setRefreshHint(error instanceof Error ? error.message : "日志状态检查失败");
+    }
+  }, [refreshLogs]);
 
   useEffect(() => {
-    void refreshLogs();
-  }, []);
+    void refreshLogs("initial");
+  }, [refreshLogs]);
+
+  useEffect(() => {
+    if (!autoListenEnabled) {
+      return;
+    }
+
+    const checkLogStateWhenVisible = () => {
+      if (document.visibilityState !== "visible") {
+        setRefreshHint("页面不在前台，自动监听暂停");
+        return;
+      }
+
+      void checkLogState();
+    };
+
+    setRefreshHint(buildAutoListenHint());
+    void checkLogState();
+    const timerId = window.setInterval(checkLogStateWhenVisible, AUTO_LISTEN_INTERVAL_MS);
+    document.addEventListener("visibilitychange", checkLogStateWhenVisible);
+
+    return () => {
+      window.clearInterval(timerId);
+      document.removeEventListener("visibilitychange", checkLogStateWhenVisible);
+    };
+  }, [autoListenEnabled, checkLogState]);
+
+  const handleAutoListenChange = (enabled: boolean) => {
+    setAutoListenEnabled(enabled);
+    setRefreshHint(enabled ? buildAutoListenHint() : "自动监听已关闭，避免重复消耗 token");
+  };
 
   const responseLogs = useMemo(
     () => logs.filter((item) => item.durationMs > 0),
@@ -178,6 +299,7 @@ export default function App() {
     ? `大模型建议 / ${modelAnalysis.model}`
     : "大模型状态";
   const levelText = translateAnalysisLevel(analysis.level);
+  const analysisButtonText = getAnalysisButtonText(activeRefreshReason, hasModelAnalysisRun, modelAnalysisFailed);
   const focusText = translateAnalysisText(analysis.focus);
   const summaryText = translateAnalysisText(analysis.summary);
   const generatedAt = formatGeneratedAt(analysis.generatedAt);
@@ -209,13 +331,17 @@ export default function App() {
         <div className="topbar-meta" aria-label="当前运行状态">
           <span className={`live-dot ${analysis.level}`} aria-hidden="true" />
           <span>{status}</span>
+          <span>{refreshHint}</span>
           {lastRefresh ? <span>{lastRefresh}</span> : null}
         </div>
 
-        <button className="primary-action" type="button" onClick={() => void refreshLogs()} aria-label="重新分析">
-          <span aria-hidden="true">↻</span>
-          重新分析
-        </button>
+        <div className="topbar-actions">
+          <AutoListenToggle enabled={autoListenEnabled} onChange={handleAutoListenChange} />
+          <button className="primary-action" type="button" onClick={() => void refreshLogs("manual")} aria-label={analysisButtonText} disabled={isRefreshing}>
+            <span aria-hidden="true">↻</span>
+            {analysisButtonText}
+          </button>
+        </div>
       </header>
 
       <aside className="side-rail" aria-label="Agent 工作台导航">
@@ -225,10 +351,13 @@ export default function App() {
           <small>WinForms 日志桥接中</small>
         </div>
 
-        <button className="rail-action" type="button" onClick={() => void refreshLogs()}>
-          <span aria-hidden="true">↻</span>
-          重新分析
-        </button>
+        <div className="rail-controls">
+          <AutoListenToggle enabled={autoListenEnabled} onChange={handleAutoListenChange} />
+          <button className="rail-action" type="button" onClick={() => void refreshLogs("manual")} disabled={isRefreshing}>
+            <span aria-hidden="true">↻</span>
+            {analysisButtonText}
+          </button>
+        </div>
 
         <nav>
           {navigationItems.map((item, index) => (
@@ -254,6 +383,7 @@ export default function App() {
             <div className="overview-meta">
               <span className={`live-dot ${analysis.level}`} aria-hidden="true" />
               <span>{status}</span>
+              <span>{refreshHint}</span>
               {lastRefresh ? <time>{lastRefresh}</time> : null}
             </div>
           </div>
@@ -477,6 +607,88 @@ function EChart({ option }: { option: EChartsCoreOption }) {
   return <div className="chart" ref={chartRef} />;
 }
 
+function AutoListenToggle({ enabled, onChange }: { enabled: boolean; onChange: (enabled: boolean) => void }) {
+  return (
+    <label className={`auto-listen-toggle ${enabled ? "active" : ""}`}>
+      <input
+        checked={enabled}
+        onChange={(event) => onChange(event.currentTarget.checked)}
+        type="checkbox"
+      />
+      <span className="toggle-track" aria-hidden="true">
+        <span className="toggle-thumb" />
+      </span>
+      <span>自动监听</span>
+    </label>
+  );
+}
+
+function buildAutoListenHint(detail?: string) {
+  return detail
+    ? `自动监听中，每 ${AUTO_LISTEN_SECONDS} 秒检查日志，${detail}`
+    : `自动监听中，每 ${AUTO_LISTEN_SECONDS} 秒检查日志`;
+}
+
+function buildLogSnapshotFingerprint(total: number, latestLogId: string | null) {
+  return `${total}:${latestLogId ?? ""}`;
+}
+
+function getAnalysisButtonText(
+  activeRefreshReason: RefreshReason | null,
+  hasModelAnalysisRun: boolean,
+  modelAnalysisFailed: boolean,
+) {
+  if (activeRefreshReason === "manual") {
+    return "分析中";
+  }
+
+  if (modelAnalysisFailed) {
+    return "重试分析";
+  }
+
+  return hasModelAnalysisRun ? "重新分析" : "开始分析";
+}
+
+function buildRefreshState(
+  total: number,
+  previousTotal: number | null,
+  latestLogId: string | null,
+  previousLogId: string | null,
+) {
+  if (previousTotal === null) {
+    return {
+      status: `已读取 ${total} 条日志`,
+      hint: "只读本地日志，不自动调用大模型",
+    };
+  }
+
+  if (total > previousTotal) {
+    return {
+      status: `已读取 ${total} 条日志，新增 ${total - previousTotal} 条`,
+      hint: "刚刚发现新日志",
+    };
+  }
+
+  if (total < previousTotal) {
+    return {
+      status: `已读取 ${total} 条日志，日志文件已重置`,
+      hint: "不自动刷新，避免重复消耗 token",
+    };
+  }
+
+  if (latestLogId && latestLogId !== previousLogId) {
+    return {
+      status: `已读取 ${total} 条日志，最近日志已更新`,
+      hint: "刚刚发现日志更新",
+    };
+  }
+
+  return {
+    status: `已读取 ${total} 条日志`,
+    hint: "不自动刷新，避免重复消耗 token",
+  };
+}
+
 function buildDurationOption(items: CommunicationLogEntry[]): EChartsCoreOption {
   const chartItems = items.length > 0 ? items : [{ id: "empty", time: "暂无数据", durationMs: 0 } as CommunicationLogEntry];
 
@@ -660,5 +872,5 @@ function formatGeneratedAt(value: string) {
 }
 
 function getApiBaseUrl() {
-  return import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:4317";
+  return import.meta.env.VITE_API_BASE_URL ?? "";
 }

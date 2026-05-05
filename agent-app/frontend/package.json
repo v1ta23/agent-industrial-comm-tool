@@ -4,8 +4,6 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "npm run build && npm run preview",
-    "preview": "vite preview --host 127.0.0.1 --port 5173",
     "build": "tsc -p tsconfig.json --noEmit && vite build",
     "check": "tsc -p tsconfig.json --noEmit --pretty false"
   },
