@@ -167,22 +167,23 @@ export default function App() {
       const latestLogId = data.items.at(-1)?.id ?? null;
       const refreshState = buildRefreshState(data.total, previousTotal, latestLogId, previousLogId);
       const logFingerprint = data.logState?.fingerprint ?? buildLogSnapshotFingerprint(data.total, latestLogId);
+      const nextModelAnalysis = data.modelAnalysis ?? emptyModelAnalysis;
 
       setLogs(data.items);
       setSummary(data.summary);
       setAnalysis(data.analysis);
-      setModelAnalysis(data.modelAnalysis ?? emptyModelAnalysis);
+      setModelAnalysis(nextModelAnalysis);
       setSource(data.source);
       setStatus(refreshState.status);
-      setRefreshHint(reason === "manual" ? "本次已手动调用大模型" : reason === "auto" ? buildAutoListenHint() : refreshState.hint);
+      setRefreshHint(reason === "manual" ? buildManualModelHint(nextModelAnalysis) : reason === "auto" ? buildAutoListenHint() : refreshState.hint);
       setLastRefresh(new Date().toLocaleString());
       lastTotalRef.current = data.total;
       lastLogIdRef.current = latestLogId;
       lastLogFingerprintRef.current = logFingerprint;
 
       if (reason === "manual") {
-        setHasModelAnalysisRun(true);
-        setModelAnalysisFailed(false);
+        setHasModelAnalysisRun(nextModelAnalysis.status === "ok");
+        setModelAnalysisFailed(nextModelAnalysis.status === "error");
       }
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "读取失败");
@@ -631,6 +632,18 @@ function buildAutoListenHint(detail?: string) {
 
 function buildLogSnapshotFingerprint(total: number, latestLogId: string | null) {
   return `${total}:${latestLogId ?? ""}`;
+}
+
+function buildManualModelHint(modelAnalysis: ModelAnalysis) {
+  if (modelAnalysis.status === "ok") {
+    return "本次已手动调用大模型";
+  }
+
+  if (modelAnalysis.status === "disabled") {
+    return "大模型未启用，当前只显示规则分析";
+  }
+
+  return "大模型调用失败，当前只显示规则分析";
 }
 
 function getAnalysisButtonText(

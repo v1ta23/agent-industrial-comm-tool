@@ -32,7 +32,13 @@ internal static class AgentAppRuntime
             reportStatus?.Invoke($"正在检查 Agent 后端：\r\n{BackendHealthUrl}");
             var backendReady = await CanGetAsync(BackendHealthUrl, cancellationToken);
 
-            if (!workbenchReady && !backendReady)
+            if (!workbenchReady && backendReady)
+            {
+                reportStatus?.Invoke("4317 后端已通，Agent 页面没出来，正在重新构建工作台页面。");
+                StartWorkbenchService(appPath, "Agent 工作台页面", "build --workspace frontend", "frontend-build");
+                serviceStartRequested = true;
+            }
+            else if (!workbenchReady)
             {
                 reportStatus?.Invoke("Agent 工作台没通，正在后台启动 4317。");
                 StartWorkbenchService(appPath, "Agent 工作台", "dev:workbench", "backend-workbench");
@@ -205,12 +211,12 @@ internal sealed class AgentAppStartupException : Exception
         if (!workbenchReady && !backendReady)
         {
             var startText = serviceStartRequested
-                ? "程序已经尝试自动启动 Agent 工作台，但 75 秒内没等到。"
+                ? "程序已经尝试自动准备 Agent 工作台，但 75 秒内没等到。"
                 : "程序检测到 Agent 工作台还没准备好。";
 
             return new AgentAppStartupException(
                 "Agent 工作台服务没准备好",
-                $"{startText}\r\n\r\n工作台地址：\r\n{AgentAppRuntime.WorkbenchUrl}\r\n\r\n后端检查：\r\n{AgentAppRuntime.BackendHealthUrl}\r\n\r\n先看日志：\r\n{FormatLogHint(appPath, "backend-workbench")}\r\n\r\n常见原因：npm 依赖没装、4317 端口被占用，或前端构建/后端启动脚本报错。",
+                $"{startText}\r\n\r\n工作台地址：\r\n{AgentAppRuntime.WorkbenchUrl}\r\n\r\n后端检查：\r\n{AgentAppRuntime.BackendHealthUrl}\r\n\r\n先看日志：\r\n{FormatLogHint(appPath, "backend-workbench", "frontend-build")}\r\n\r\n常见原因：npm 依赖没装、4317 端口被占用，或前端构建/后端启动脚本报错。",
                 "Workbench endpoints are unavailable.");
         }
 
@@ -218,7 +224,7 @@ internal sealed class AgentAppStartupException : Exception
         {
             return new AgentAppStartupException(
                 "Agent 页面没打开",
-                $"4317 后端 /api/health 已经通过，但 /workbench 页面没出来。\r\n\r\n工作台地址：\r\n{AgentAppRuntime.WorkbenchUrl}\r\n\r\n先看日志：\r\n{FormatLogHint(appPath, "backend-workbench")}\r\n\r\n常见原因：前端 dist 没构建、旧的 4317 后端进程还没重启，或静态文件托管报错。",
+                $"4317 后端 /api/health 已经通过，但 /workbench 页面没出来。\r\n\r\n工作台地址：\r\n{AgentAppRuntime.WorkbenchUrl}\r\n\r\n先看日志：\r\n{FormatLogHint(appPath, "backend-workbench", "frontend-build")}\r\n\r\n常见原因：前端 dist 没构建、旧的 4317 后端进程还没重启，或静态文件托管报错。",
                 "Workbench page is unavailable.");
         }
 

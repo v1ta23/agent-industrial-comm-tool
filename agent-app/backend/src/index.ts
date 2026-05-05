@@ -15,15 +15,18 @@ const frontendDistPath = path.resolve(currentDirectory, "..", "..", "frontend", 
 const workbenchIndexPath = path.join(frontendDistPath, "index.html");
 
 app.use(cors());
-app.use("/workbench", express.static(frontendDistPath, { index: false }));
 
-app.get(/^\/workbench(?:\/.*)?$/, (_request, response, next) => {
-  response.sendFile(workbenchIndexPath, (error) => {
+app.get(["/workbench", "/workbench/"], serveWorkbenchIndex);
+app.use("/workbench", express.static(frontendDistPath, { dotfiles: "allow", fallthrough: true, index: false }));
+app.get(/^\/workbench\/(?!assets(?:\/|$)).*$/, serveWorkbenchIndex);
+
+function serveWorkbenchIndex(_request: express.Request, response: express.Response, next: express.NextFunction) {
+  response.sendFile(workbenchIndexPath, { dotfiles: "allow" }, (error) => {
     if (error) {
       next(error);
     }
   });
-});
+}
 
 app.get("/api/health", (_request, response) => {
   response.json({
