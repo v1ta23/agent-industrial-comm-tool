@@ -18,7 +18,7 @@
 - Agent 工作台：通过 WebView2 打开本地网页工作台。
 - 日志持久化：通信记录保存到 `data/comm-logs.json`。
 - 协议分诊：后端按 TCP / Serial / ModbusTCP 分开统计和给建议。
-- 大模型分析：通过 LangChain 调用 OpenAI 兼容接口，但默认不会自动调用，只有手动触发时才会消耗模型额度。
+- 大模型分析：通过 LangChain 调用 OpenAI 兼容接口，但默认不会自动调用，只有手动触发时才会消耗Token。
 
 ## 技术组成
 
@@ -75,7 +75,7 @@ dotnet run --project .\industrial-comm-tool.csproj
 
 ## 运行 Agent 工作台
 
-推荐方式是让 WinForms 自动检查并打开 Agent 工作台。入口在 WinForms 页面右上角的 `Agent工作台` 按钮。
+推荐方式是让 WinForms 自动检查并打开 Agent 工作台。入口在 WinForms 页面左侧的 `Agent工作台` 按钮。
 
 当前工作台走单地址：
 
