@@ -2,6 +2,10 @@
 
 一个用于学习和验证工业通信流程的 WinForms 工具。
 
+<img width="1209" height="967" alt="image" src="https://github.com/user-attachments/assets/82f16a41-f9d8-442a-ab6d-8b13bf590e55" />
+
+<img width="1569" height="1127" alt="image" src="https://github.com/user-attachments/assets/2bc95048-96ae-4bf5-804b-37bedaa435cd" />
+
 它现在主要做两件事：
 
 - WinForms 端负责通信调试、模拟通信、配置保存和通信日志落盘。
